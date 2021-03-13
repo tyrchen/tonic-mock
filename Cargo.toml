@@ -3,6 +3,16 @@ name = "tonic-mock"
 version = "0.1.0"
 authors = ["Tyr Chen <tyr.chen@gmail.com>"]
 edition = "2018"
+license = "MIT"
+documentation = "https://docs.rs/tonic-mock"
+repository = "https://github.com/tyrchen/tonic-mock"
+homepage = "https://github.com/tyrchen/tonic-mock"
+description = """
+Test utilities for easy mocking tonic streaming interface
+"""
+readme = "../README.md"
+categories = ["development-tools"]
+keywords = ["tonic", "testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
