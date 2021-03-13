@@ -10,7 +10,7 @@ homepage = "https://github.com/tyrchen/tonic-mock"
 description = """
 Test utilities for easy mocking tonic streaming interface
 """
-readme = "../README.md"
+readme = "README.md"
 categories = ["development-tools"]
 keywords = ["tonic", "testing"]
 
