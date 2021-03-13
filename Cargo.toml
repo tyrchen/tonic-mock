@@ -1,0 +1,19 @@
+[package]
+name = "tonic-mock"
+version = "0.1.0"
+authors = ["Tyr Chen <tyr.chen@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+bytes = "1"
+futures = "0.3"
+http-body = "0.4"
+http = "0.2"
+prost = "0.7"
+tonic = "0.4"
+
+[dev-dependencies]
+async-stream = "0.3"
+tokio = { version = "1", features = ["rt-multi-thread"] }
