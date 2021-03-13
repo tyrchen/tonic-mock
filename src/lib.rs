@@ -7,6 +7,9 @@ mod mock;
 
 pub use mock::{MockBody, ProstDecoder};
 
+pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>;
+pub type StreamResponse<T> = Response<StreamResponseInner<T>>;
+
 /// Generate streaming request for GRPC
 ///
 /// When testing streaming RPC implemented with tonic, it is pretty clumsy
@@ -28,11 +31,10 @@ pub use mock::{MockBody, ProstDecoder};
 ///     #[prost(bytes = "bytes", tag = "2")]
 ///     pub data: Bytes,
 /// }
-/// fn main() {
-///     let event = Event { id: Bytes::from("1"), data: Bytes::from("a".repeat(10)) };
-///     let mut events = vec![event.clone(), event.clone(), event];
-///     let stream = tonic_mock::streaming_request(events);
-/// }
+///
+/// let event = Event { id: Bytes::from("1"), data: Bytes::from("a".repeat(10)) };
+/// let mut events = vec![event.clone(), event.clone(), event];
+/// let stream = tonic_mock::streaming_request(events);
 ///
 pub fn streaming_request<T>(messages: Vec<T>) -> Request<Streaming<T>>
 where
@@ -59,29 +61,25 @@ where
 ///     pub code: i32,
 /// }
 ///
-/// fn main() {
-///     // below code is to mimic a stream response from a GRPC service
-///     let output = async_stream::try_stream! {
-///         yield ResponsePush { code: 0 };
-///         yield ResponsePush { code: 1 };
-///         yield ResponsePush { code: 2 };
-///     };
-///     let response = Response::new(Box::pin(output) as Pin<Box<dyn Stream<Item = Result<ResponsePush, Status>> + Send + Sync>>);
-///     let rt = tokio::runtime::Runtime::new().unwrap();
+/// // below code is to mimic a stream response from a GRPC service
+/// let output = async_stream::try_stream! {
+///     yield ResponsePush { code: 0 };
+///     yield ResponsePush { code: 1 };
+///     yield ResponsePush { code: 2 };
+/// };
+/// let response = Response::new(Box::pin(output) as tonic_mock::StreamResponseInner<ResponsePush>);
+/// let rt = tokio::runtime::Runtime::new().unwrap();
 ///
-///     // now we process the events
-///     rt.block_on(async {
-///         tonic_mock::process_streaming_response(response, |msg, i| {
-///             assert!(msg.is_ok());
-///             assert_eq!(msg.as_ref().unwrap().code, i as i32);
-///         }).await;
-///     });
-/// }
+/// // now we process the events
+/// rt.block_on(async {
+///     tonic_mock::process_streaming_response(response, |msg, i| {
+///         assert!(msg.is_ok());
+///         assert_eq!(msg.as_ref().unwrap().code, i as i32);
+///     }).await;
+/// });
 /// ```
-pub async fn process_streaming_response<T, F>(
-    response: Response<Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>>,
-    f: F,
-) where
+pub async fn process_streaming_response<T, F>(response: StreamResponse<T>, f: F)
+where
     T: Message + Default + 'static,
     F: Fn(Result<T, Status>, usize),
 {
@@ -107,27 +105,23 @@ pub async fn process_streaming_response<T, F>(
 ///     pub code: i32,
 /// }
 ///
-/// fn main() {
-///     // below code is to mimic a stream response from a GRPC service
-///     let output = async_stream::try_stream! {
-///         yield ResponsePush { code: 0 };
-///         yield ResponsePush { code: 1 };
-///         yield ResponsePush { code: 2 };
-///     };
-///     let response = Response::new(Box::pin(output) as Pin<Box<dyn Stream<Item = Result<ResponsePush, Status>> + Send + Sync>>);
-///     let rt = tokio::runtime::Runtime::new().unwrap();
+/// // below code is to mimic a stream response from a GRPC service
+/// let output = async_stream::try_stream! {
+///     yield ResponsePush { code: 0 };
+///     yield ResponsePush { code: 1 };
+///     yield ResponsePush { code: 2 };
+/// };
+/// let response = Response::new(Box::pin(output) as tonic_mock::StreamResponseInner<ResponsePush>);
+/// let rt = tokio::runtime::Runtime::new().unwrap();
 ///
-///     // now we convert response to vec
-///     let result: Vec<Result<ResponsePush, Status>> = rt.block_on(async { tonic_mock::stream_to_vec(response).await });
-///     for (i, v) in result.iter().enumerate() {
-///         assert!(v.is_ok());
-///         assert_eq!(v.as_ref().unwrap().code, i as i32);
-///     }
+/// // now we convert response to vec
+/// let result: Vec<Result<ResponsePush, Status>> = rt.block_on(async { tonic_mock::stream_to_vec(response).await });
+/// for (i, v) in result.iter().enumerate() {
+///     assert!(v.is_ok());
+///     assert_eq!(v.as_ref().unwrap().code, i as i32);
 /// }
 /// ```
-pub async fn stream_to_vec<T>(
-    response: Response<Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>>,
-) -> Vec<Result<T, Status>>
+pub async fn stream_to_vec<T>(response: StreamResponse<T>) -> Vec<Result<T, Status>>
 where
     T: Message + Default + 'static,
 {

@@ -15,10 +15,16 @@ async fn service_push_works() -> anyhow::Result<()> {
     for i in 0..3 {
         events.push(RequestPush::new(id: Bytes::from(i.to_string), data: Bytes::from("a".repeat(10))));
     }
+
+    // preparing the streaming request
     let req = tonic_mock::streaming_request(events);
+
     let server = start_server();
+
+    // call the service
     let res = server.push(req).await?;
 
+    // iterate the response and assert the result
     tonic_mock::process_streaming_response(result, |msg, i| {
         assert!(msg.is_ok());
         assert_eq!(msg.as_ref().unwrap().code, i as i32);
