@@ -42,7 +42,7 @@ where
 {
     let body = MockBody::new(messages);
     let decoder: ProstDecoder<T> = ProstDecoder::new();
-    let stream = Streaming::new_request(decoder, body);
+    let stream = Streaming::new_request(decoder, body, None);
 
     Request::new(stream)
 }
