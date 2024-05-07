@@ -3,7 +3,11 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
-## [unreleased]
+## [0.3.0] - 2024-05-07
+
+### Miscellaneous Chores
+
+- bump version - ([077c6e2](https://github.com/tyrchen/tonic-mock/commit/077c6e25b717bc0175516f4364f81f57a5aabeb2)) - Tyr Chen
 
 ### Other
 
