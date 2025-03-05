@@ -60,23 +60,16 @@ impl Body for MockBody {
     type Data = Bytes;
     type Error = Status;
 
-    fn poll_data(
+    fn poll_frame(
         mut self: Pin<&mut Self>,
         _: &mut Context<'_>,
-    ) -> Poll<Option<Result<Self::Data, Self::Error>>> {
+    ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
         if !self.is_empty() {
             let msg = self.data.pop_front().unwrap();
-            Poll::Ready(Some(Ok(msg)))
+            Poll::Ready(Some(Ok(http_body::Frame::data(msg))))
         } else {
             Poll::Ready(None)
         }
-    }
-
-    fn poll_trailers(
-        self: Pin<&mut Self>,
-        _: &mut Context<'_>,
-    ) -> Poll<Result<Option<http::HeaderMap>, Self::Error>> {
-        Poll::Ready(Ok(None))
     }
 }
 /// A [`Decoder`] that knows how to decode `U`.
