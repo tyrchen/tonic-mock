@@ -9,7 +9,7 @@
 
 use bytes::Bytes;
 use futures::Stream;
-use std::pin::Pin;
+use std::{cell::Cell, pin::Pin, time::Duration};
 use tokio::runtime::Runtime;
 use tonic::{Request, Response, Status, Streaming};
 use tonic_mock::{
@@ -315,6 +315,122 @@ fn test_create_stream_with_errors() {
     println!("✅ Create stream with errors test passed");
 }
 
+// Test timeout functionality when processing streaming responses
+fn test_streaming_response_timeout() {
+    use tonic_mock::{process_streaming_response_with_timeout, stream_to_vec_with_timeout};
+
+    let rt = Runtime::new().unwrap();
+
+    // Create the service - this one has a deliberate delay
+    let service = TimeoutEchoService;
+
+    // Create a request that will cause a delay
+    let request = Request::new(TestRequest::new("slow", "test_data"));
+
+    // Call the service
+    let _response = rt.block_on(async { service.server_streaming(request).await.unwrap() });
+
+    // 1. Test processing with timeout
+    let timeout_occurred = Cell::new(false);
+    rt.block_on(async {
+        // We need to create a fresh response for each test since streams can only be consumed once
+        let fresh_request = Request::new(TestRequest::new("slow", "test_data"));
+        let fresh_response = service.server_streaming(fresh_request).await.unwrap();
+
+        process_streaming_response_with_timeout(
+            fresh_response,
+            Duration::from_millis(50), // Very short timeout
+            |msg, idx| {
+                if idx == 0 {
+                    // First message should be ok
+                    assert!(msg.is_ok());
+                } else if idx == 1 {
+                    // Second message should time out
+                    assert!(msg.is_err());
+                    assert_eq!(
+                        msg.as_ref().err().unwrap().code(),
+                        tonic::Code::DeadlineExceeded
+                    );
+                    timeout_occurred.set(true);
+                }
+            },
+        )
+        .await;
+    });
+
+    assert!(timeout_occurred.get(), "Timeout should have occurred");
+
+    // 2. Test converting to vec with timeout
+    let request = Request::new(TestRequest::new("slow", "test_data"));
+    let response = rt.block_on(async { service.server_streaming(request).await.unwrap() });
+
+    let results = rt
+        .block_on(async { stream_to_vec_with_timeout(response, Duration::from_millis(50)).await });
+
+    assert_eq!(results.len(), 2); // First message and timeout error
+    assert!(results[0].is_ok());
+    assert!(results[1].is_err());
+    assert_eq!(
+        results[1].as_ref().err().unwrap().code(),
+        tonic::Code::DeadlineExceeded
+    );
+
+    println!("✅ Streaming response timeout test passed");
+}
+
+// A service that deliberately introduces delays for testing timeouts
+#[derive(Debug)]
+struct TimeoutEchoService;
+
+#[tonic::async_trait]
+impl EchoServiceTrait for TimeoutEchoService {
+    async fn client_streaming(
+        &self,
+        request: Request<Streaming<TestRequest>>,
+    ) -> Result<Response<TestResponse>, Status> {
+        // Just delegate to the regular service
+        EchoService.client_streaming(request).await
+    }
+
+    async fn server_streaming(
+        &self,
+        request: Request<TestRequest>,
+    ) -> Result<
+        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
+        Status,
+    > {
+        let message = request.into_inner();
+        let id_str = String::from_utf8_lossy(&message.id).to_string();
+
+        // Create a stream with deliberate delays
+        let stream = async_stream::try_stream! {
+            // First message comes immediately
+            yield TestResponse::new(0, format!("Fast response for {}", id_str));
+
+            // Second message has a delay
+            tokio::time::sleep(Duration::from_millis(200)).await;
+            yield TestResponse::new(1, format!("Slow response for {}", id_str));
+
+            // Third message has an even longer delay
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            yield TestResponse::new(2, format!("Very slow response for {}", id_str));
+        };
+
+        Ok(Response::new(Box::pin(stream)))
+    }
+
+    async fn bidirectional_streaming(
+        &self,
+        request: Request<Streaming<TestRequest>>,
+    ) -> Result<
+        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
+        Status,
+    > {
+        // Just delegate to the regular service
+        EchoService.bidirectional_streaming(request).await
+    }
+}
+
 // -------------------- Main Function -----------------------
 
 fn main() {
@@ -327,6 +443,7 @@ fn main() {
     test_bidirectional_streaming();
     test_server_streaming_errors();
     test_create_stream_with_errors();
+    test_streaming_response_timeout();
 
     println!("---------------------------------------------");
     println!("All tests passed! 🎉");

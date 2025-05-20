@@ -39,11 +39,50 @@ async fn service_push_works() -> anyhow::Result<()> {
 
 ### Core Functionality
 
-Three main functions provided:
+Five main functions provided:
 
 - `streaming_request`: build streaming requests based on a vector of messages.
 - `process_streaming_response`: iterate the streaming response and call the closure user provided.
+- `process_streaming_response_with_timeout`: iterate the streaming response with a timeout for each message.
 - `stream_to_vec`: iterate the streaming response and generate a vector for further processing.
+- `stream_to_vec_with_timeout`: iterate the streaming response with a timeout and generate a vector.
+
+### Timeout Support
+
+The crate provides functions for handling timeouts in streaming responses:
+
+```rust
+// Process streaming response with a 1-second timeout for each message
+process_streaming_response_with_timeout(
+    response,
+    Duration::from_secs(1),
+    |msg, idx| {
+        if msg.is_ok() {
+            // Handle successful message
+            let response = msg.as_ref().unwrap();
+            // ...
+        } else {
+            // Handle error (could be timeout or other error)
+            let error = msg.as_ref().err().unwrap();
+            if error.code() == tonic::Code::DeadlineExceeded {
+                println!("Timeout occurred: {}", error.message());
+            }
+        }
+    }
+).await;
+
+// Convert stream to vector with timeout
+let results = stream_to_vec_with_timeout(response, Duration::from_secs(1)).await;
+for result in results {
+    // Check for timeout or other errors
+    if let Err(status) = &result {
+        if status.code() == tonic::Code::DeadlineExceeded {
+            println!("Timeout occurred: {}", status.message());
+            break;
+        }
+    }
+}
+```
 
 ### Test Utilities
 
@@ -97,6 +136,7 @@ For a more complete example, check the `examples/grpc_test_demo.rs` file which d
 - Testing server streaming RPC (client sends one message, server sends multiple responses)
 - Testing bidirectional streaming RPC (client and server both send multiple messages)
 - Testing error handling in streaming RPCs
+- Testing timeouts in streaming responses
 
 Note these functions are for testing purpose only. DO NOT use them in other cases.
 

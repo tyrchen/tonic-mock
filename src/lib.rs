@@ -1,6 +1,7 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
-use std::pin::Pin;
+use std::{pin::Pin, time::Duration};
+use tokio::time::timeout;
 use tonic::{Request, Response, Status, Streaming};
 
 mod mock;
@@ -99,6 +100,82 @@ where
     }
 }
 
+/// Process a streaming response with a configurable timeout
+///
+/// This function is similar to `process_streaming_response` but adds a timeout for each message.
+/// If a message is not received within the specified timeout, the callback will be invoked with
+/// a `Status::deadline_exceeded` error.
+///
+/// # Arguments
+/// * `response` - The streaming response to process
+/// * `timeout_duration` - The maximum time to wait for each message
+/// * `f` - A callback function that receives each message result and its index
+///
+/// # Example
+/// ```
+/// use tonic::{Response, Status};
+/// use futures::Stream;
+/// use std::{pin::Pin, time::Duration};
+///
+/// #[derive(Clone, PartialEq, ::prost::Message)]
+/// pub struct ResponsePush {
+///     #[prost(int32, tag = "1")]
+///     pub code: i32,
+/// }
+///
+/// // below code is to mimic a stream response from a GRPC service
+/// let output = async_stream::try_stream! {
+///     yield ResponsePush { code: 0 };
+///     yield ResponsePush { code: 1 };
+///     yield ResponsePush { code: 2 };
+/// };
+/// let response = Response::new(Box::pin(output) as tonic_mock::StreamResponseInner<ResponsePush>);
+/// let rt = tokio::runtime::Runtime::new().unwrap();
+///
+/// // now we process the events with a timeout
+/// rt.block_on(async {
+///     tonic_mock::process_streaming_response_with_timeout(
+///         response,
+///         Duration::from_secs(1),
+///         |msg, i| {
+///             assert!(msg.is_ok());
+///             assert_eq!(msg.as_ref().unwrap().code, i as i32);
+///         }
+///     ).await;
+/// });
+/// ```
+pub async fn process_streaming_response_with_timeout<T, F>(
+    response: StreamResponse<T>,
+    timeout_duration: Duration,
+    f: F,
+) where
+    T: Message + Default + 'static,
+    F: Fn(Result<T, Status>, usize),
+{
+    let mut i: usize = 0;
+    let mut messages = response.into_inner();
+    loop {
+        match timeout(timeout_duration, messages.next()).await {
+            Ok(Some(v)) => {
+                f(v, i);
+                i += 1;
+            }
+            Ok(None) => break, // Stream is done
+            Err(_) => {
+                // Timeout occurred
+                f(
+                    Err(Status::deadline_exceeded(format!(
+                        "Timeout waiting for message {}: exceeded {:?}",
+                        i, timeout_duration
+                    ))),
+                    i,
+                );
+                break;
+            }
+        }
+    }
+}
+
 /// convert a streaming response to a Vec for simplified testing
 ///
 /// Usage:
@@ -137,6 +214,78 @@ where
     let mut messages = response.into_inner();
     while let Some(v) = messages.next().await {
         result.push(v)
+    }
+    result
+}
+
+/// Convert a streaming response to a Vec with timeout support
+///
+/// This function is similar to `stream_to_vec` but adds a timeout for each message.
+/// If a message is not received within the specified timeout, a `Status::deadline_exceeded` error
+/// will be added to the result vector and processing will stop.
+///
+/// # Arguments
+/// * `response` - The streaming response to process
+/// * `timeout_duration` - The maximum time to wait for each message
+///
+/// # Returns
+/// A vector of message results, potentially including a timeout error
+///
+/// # Example
+/// ```
+/// use tonic::{Response, Status};
+/// use futures::Stream;
+/// use std::{pin::Pin, time::Duration};
+///
+/// #[derive(Clone, PartialEq, ::prost::Message)]
+/// pub struct ResponsePush {
+///     #[prost(int32, tag = "1")]
+///     pub code: i32,
+/// }
+///
+/// // below code is to mimic a stream response from a GRPC service
+/// let output = async_stream::try_stream! {
+///     yield ResponsePush { code: 0 };
+///     yield ResponsePush { code: 1 };
+///     yield ResponsePush { code: 2 };
+/// };
+/// let response = Response::new(Box::pin(output) as tonic_mock::StreamResponseInner<ResponsePush>);
+/// let rt = tokio::runtime::Runtime::new().unwrap();
+///
+/// // now we convert response to vec with a timeout
+/// let result = rt.block_on(async {
+///     tonic_mock::stream_to_vec_with_timeout(response, Duration::from_secs(1)).await
+/// });
+/// for (i, v) in result.iter().enumerate() {
+///     if i < 3 {
+///         assert!(v.is_ok());
+///         assert_eq!(v.as_ref().unwrap().code, i as i32);
+///     }
+/// }
+/// ```
+pub async fn stream_to_vec_with_timeout<T>(
+    response: StreamResponse<T>,
+    timeout_duration: Duration,
+) -> Vec<Result<T, Status>>
+where
+    T: Message + Default + 'static,
+{
+    let mut result = Vec::new();
+    let mut messages = response.into_inner();
+    loop {
+        match timeout(timeout_duration, messages.next()).await {
+            Ok(Some(v)) => result.push(v),
+            Ok(None) => break, // Stream is done
+            Err(_) => {
+                // Timeout occurred
+                result.push(Err(Status::deadline_exceeded(format!(
+                    "Timeout waiting for message {}: exceeded {:?}",
+                    result.len(),
+                    timeout_duration
+                ))));
+                break;
+            }
+        }
     }
     result
 }
