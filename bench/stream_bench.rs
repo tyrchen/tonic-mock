@@ -1,10 +1,10 @@
 mod common;
 
 use common::{
-    process_streaming_response, stream_to_vec, streaming_request, test_utils, TestMessage,
-    TestResponse,
+    TestMessage, TestResponse, process_streaming_response, stream_to_vec, streaming_request,
+    test_utils,
 };
-use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use criterion::{BenchmarkId, Criterion, criterion_group, criterion_main};
 use tokio::runtime::Runtime;
 
 // Benchmark for creating streaming requests

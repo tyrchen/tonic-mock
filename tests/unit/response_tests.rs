@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::common::{test_utils, TestResponse};
+    use crate::common::{TestResponse, test_utils};
     use std::sync::{Arc, Mutex};
     use tokio::runtime::Runtime;
     use tonic::{Code, Status};

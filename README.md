@@ -47,11 +47,14 @@ Three main functions provided:
 
 ### Test Utilities
 
-The crate also provides optional test utilities to help with testing gRPC services. Enable these with the `test-utils` feature:
+The crate also provides optional test utilities to help with testing gRPC services. Enable these with the `test-utils` feature (enabled by default):
 
 ```toml
 [dependencies]
-tonic-mock = { version = "0.3", features = ["test-utils"] }
+tonic-mock = "0.4"  # Test utilities are included by default
+
+# If you want to disable test utilities
+tonic-mock = { version = "0.4", default-features = false }
 ```
 
 Test utilities include:
@@ -81,12 +84,19 @@ async fn test_my_service() {
     let response = my_service.call(request).await.unwrap();
 
     // Process the response
-    process_streaming_response(response, |msg, idx| {
+    process_streaming_response(response, |msg: Result<TestResponse, Status>, idx| {
         assert!(msg.is_ok());
         // Assertions on the response
     }).await;
 }
 ```
+
+For a more complete example, check the `examples/grpc_test_demo.rs` file which demonstrates:
+
+- Testing client streaming RPC (client sends multiple messages, server sends one response)
+- Testing server streaming RPC (client sends one message, server sends multiple responses)
+- Testing bidirectional streaming RPC (client and server both send multiple messages)
+- Testing error handling in streaming RPCs
 
 Note these functions are for testing purpose only. DO NOT use them in other cases.
 

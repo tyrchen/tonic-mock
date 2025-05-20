@@ -9,8 +9,8 @@ use std::{
 };
 
 use tonic::{
-    codec::{DecodeBuf, Decoder},
     Status,
+    codec::{DecodeBuf, Decoder},
 };
 
 #[derive(Clone)]

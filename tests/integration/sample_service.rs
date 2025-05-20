@@ -1,4 +1,4 @@
-use crate::common::{test_utils, TestMessage, TestResponse};
+use crate::common::{TestMessage, TestResponse, test_utils};
 use bytes::Bytes;
 use futures::{Stream, StreamExt};
 use std::pin::Pin;
@@ -178,12 +178,16 @@ mod tests {
             assert!(responses[i].is_ok());
             let response = responses[i].as_ref().unwrap();
             assert_eq!(response.code, i as i32);
-            assert!(response
-                .message
-                .contains(&format!("Echo for message {}", i)));
-            assert!(response
-                .message
-                .contains(&format!("{:?}", Bytes::from(i.to_string()))));
+            assert!(
+                response
+                    .message
+                    .contains(&format!("Echo for message {}", i))
+            );
+            assert!(
+                response
+                    .message
+                    .contains(&format!("{:?}", Bytes::from(i.to_string())))
+            );
         }
     }
 }

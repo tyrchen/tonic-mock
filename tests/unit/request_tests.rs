@@ -1,6 +1,6 @@
 #[cfg(test)]
 mod tests {
-    use crate::common::{test_utils, TestMessage};
+    use crate::common::{TestMessage, test_utils};
     use tokio::runtime::Runtime;
     use tonic::{Request, Status, Streaming};
     use tonic_mock::streaming_request;
