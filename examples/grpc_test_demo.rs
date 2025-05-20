@@ -13,7 +13,8 @@ use std::{cell::Cell, pin::Pin, time::Duration};
 use tokio::runtime::Runtime;
 use tonic::{Request, Response, Status, Streaming};
 use tonic_mock::{
-    process_streaming_response, stream_to_vec, streaming_request,
+    process_streaming_response, request_with_interceptor, stream_to_vec, streaming_request,
+    streaming_request_with_interceptor,
     test_utils::{
         TestRequest, TestResponse, assert_response_eq, create_stream_response_with_errors,
         create_test_messages,
@@ -431,6 +432,125 @@ impl EchoServiceTrait for TimeoutEchoService {
     }
 }
 
+// Test using interceptors with streaming and regular requests
+fn test_request_interceptors() {
+    use std::sync::{Arc, Mutex};
+    use tonic::metadata::MetadataValue;
+
+    let rt = Runtime::new().unwrap();
+
+    // Create the service
+    let service = EchoService;
+
+    // Create a counter to verify the interceptor is called
+    let interceptor_called = Arc::new(Mutex::new(false));
+    let interceptor_called_clone = interceptor_called.clone();
+
+    // 1. Test streaming request with interceptor
+    let messages = create_test_messages(3);
+
+    // Create a streaming request with an interceptor that adds metadata
+    let request = streaming_request_with_interceptor(messages, move |req| {
+        // Add authorization header
+        req.metadata_mut().insert(
+            "authorization",
+            MetadataValue::from_static("Bearer mock-token"),
+        );
+
+        // Add custom header
+        req.metadata_mut()
+            .insert("x-correlation-id", MetadataValue::from_static("test-1234"));
+
+        // Mark interceptor as called
+        *interceptor_called_clone.lock().unwrap() = true;
+    });
+
+    // Verify the interceptor was called
+    assert!(
+        *interceptor_called.lock().unwrap(),
+        "Interceptor should have been called"
+    );
+
+    // Verify the metadata was added
+    assert_eq!(
+        request
+            .metadata()
+            .get("authorization")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "Bearer mock-token"
+    );
+    assert_eq!(
+        request
+            .metadata()
+            .get("x-correlation-id")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "test-1234"
+    );
+
+    // Call the service with the intercepted request
+    let response = rt.block_on(async { service.bidirectional_streaming(request).await.unwrap() });
+
+    // Process the response
+    let results = rt.block_on(async { stream_to_vec(response).await });
+
+    // Verify the service processed the request correctly
+    assert_eq!(results.len(), 3);
+    for i in 0..3 {
+        assert!(results[i].is_ok());
+    }
+
+    // 2. Test non-streaming request with interceptor
+    let interceptor_called = Arc::new(Mutex::new(false));
+    let interceptor_called_clone = interceptor_called.clone();
+
+    // Create a regular request with an interceptor
+    let request = request_with_interceptor(TestRequest::new("test-id", "test-data"), move |req| {
+        // Add authorization header
+        req.metadata_mut().insert(
+            "authorization",
+            MetadataValue::from_static("Bearer different-token"),
+        );
+
+        // Mark interceptor as called
+        *interceptor_called_clone.lock().unwrap() = true;
+    });
+
+    // Verify the interceptor was called
+    assert!(
+        *interceptor_called.lock().unwrap(),
+        "Interceptor should have been called"
+    );
+
+    // Verify the metadata was added
+    assert_eq!(
+        request
+            .metadata()
+            .get("authorization")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "Bearer different-token"
+    );
+
+    // Call the service
+    let response = rt.block_on(async { service.server_streaming(request).await.unwrap() });
+
+    // Process the response
+    let results = rt.block_on(async { stream_to_vec(response).await });
+
+    // Verify the service processed the request correctly
+    assert_eq!(results.len(), 3); // Default is 3 responses
+    for i in 0..3 {
+        assert!(results[i].is_ok());
+    }
+
+    println!("✅ Request interceptors test passed");
+}
+
 // -------------------- Main Function -----------------------
 
 fn main() {
@@ -444,6 +564,7 @@ fn main() {
     test_server_streaming_errors();
     test_create_stream_with_errors();
     test_streaming_response_timeout();
+    test_request_interceptors();
 
     println!("---------------------------------------------");
     println!("All tests passed! 🎉");

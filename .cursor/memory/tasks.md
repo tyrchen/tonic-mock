@@ -11,7 +11,8 @@
 - [x] Core testing infrastructure development
 - [x] Error injection functionality
 - [x] Add configurable timeout for streaming operations
-- [ ] Support for interceptors in mock requests
+- [x] Support for interceptors in mock requests
+- [ ] Add utility for testing bidirectional streaming
 
 ## Completed Tasks
 
@@ -34,7 +35,7 @@
 
 - [x] Add configurable timeout for streaming operations
 - [x] Implement error injection capabilities for testing error handling
-- [ ] Support for interceptors in mock requests
+- [x] Support for interceptors in mock requests
 - [ ] Add utility for testing bidirectional streaming
 
 ### Testing Improvements

@@ -39,13 +39,47 @@ async fn service_push_works() -> anyhow::Result<()> {
 
 ### Core Functionality
 
-Five main functions provided:
+Seven main functions provided:
 
 - `streaming_request`: build streaming requests based on a vector of messages.
+- `streaming_request_with_interceptor`: build streaming requests with an interceptor function.
+- `request_with_interceptor`: create a standard (non-streaming) request with an interceptor.
 - `process_streaming_response`: iterate the streaming response and call the closure user provided.
 - `process_streaming_response_with_timeout`: iterate the streaming response with a timeout for each message.
 - `stream_to_vec`: iterate the streaming response and generate a vector for further processing.
 - `stream_to_vec_with_timeout`: iterate the streaming response with a timeout and generate a vector.
+
+### Request Interceptors
+
+The crate provides support for request interceptors, which allow you to modify requests before they are sent. This is useful for adding metadata, headers, or performing other customizations:
+
+```rust
+use tonic::metadata::MetadataValue;
+use tonic_mock::streaming_request_with_interceptor;
+
+// Create a streaming request with an interceptor that adds headers
+let request = streaming_request_with_interceptor(messages, |req| {
+    // Add authentication header
+    req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::from_static("Bearer token123")
+    );
+
+    // Add tracing header
+    req.metadata_mut().insert(
+        "x-request-id",
+        MetadataValue::from_static("trace-456")
+    );
+});
+
+// For non-streaming requests
+let request = request_with_interceptor(message, |req| {
+    req.metadata_mut().insert(
+        "authorization",
+        MetadataValue::from_static("Bearer token123")
+    );
+});
+```
 
 ### Timeout Support
 
@@ -137,6 +171,7 @@ For a more complete example, check the `examples/grpc_test_demo.rs` file which d
 - Testing bidirectional streaming RPC (client and server both send multiple messages)
 - Testing error handling in streaming RPCs
 - Testing timeouts in streaming responses
+- Using request interceptors to modify requests
 
 Note these functions are for testing purpose only. DO NOT use them in other cases.
 

@@ -1,6 +1,6 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
-use std::{pin::Pin, time::Duration};
+use std::{fmt::Debug, pin::Pin, time::Duration};
 use tokio::time::timeout;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -18,6 +18,8 @@ pub use test_utils::*;
 pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>;
 /// Type alias for a streaming response
 pub type StreamResponse<T> = Response<StreamResponseInner<T>>;
+/// Type alias for a request interceptor function
+pub type RequestInterceptor<T> = Box<dyn FnMut(&mut Request<T>) + Send>;
 
 /// Generate streaming request for GRPC
 ///
@@ -54,6 +56,120 @@ where
     let stream = Streaming::new_request(decoder, body, None, None);
 
     Request::new(stream)
+}
+
+/// Generate streaming request for GRPC with an interceptor
+///
+/// This function is similar to `streaming_request` but allows specifying an interceptor
+/// function that can modify the request before it's returned. This is useful for adding
+/// metadata, headers, or other customizations to the request.
+///
+/// # Arguments
+/// * `messages` - The vector of messages to include in the request
+/// * `interceptor` - A function that can modify the request (e.g., to add metadata)
+///
+/// # Returns
+/// A Request<Streaming<T>> with the interceptor applied
+///
+/// # Example
+/// ```
+/// use bytes::Bytes;
+/// use prost::Message;
+/// use tonic::{metadata::MetadataValue, Request};
+/// use tonic_mock::streaming_request_with_interceptor;
+///
+/// #[derive(Clone, PartialEq, Message)]
+/// pub struct Event {
+///     #[prost(bytes = "bytes", tag = "1")]
+///     pub id: Bytes,
+///     #[prost(bytes = "bytes", tag = "2")]
+///     pub data: Bytes,
+/// }
+///
+/// let event = Event { id: Bytes::from("1"), data: Bytes::from("test") };
+/// let events = vec![event.clone(), event.clone()];
+///
+/// // Create a request with an interceptor that adds metadata
+/// let request = streaming_request_with_interceptor(events, |req| {
+///     req.metadata_mut().insert(
+///         "authorization",
+///         MetadataValue::from_static("Bearer token123"),
+///     );
+///     req.metadata_mut().insert(
+///         "x-request-id",
+///         MetadataValue::from_static("test-request-id"),
+///     );
+/// });
+///
+/// // The request now has the metadata set by the interceptor
+/// assert_eq!(
+///     request.metadata().get("authorization").unwrap(),
+///     "Bearer token123"
+/// );
+/// ```
+pub fn streaming_request_with_interceptor<T, F>(
+    messages: Vec<T>,
+    mut interceptor: F,
+) -> Request<Streaming<T>>
+where
+    T: Message + Default + 'static,
+    F: FnMut(&mut Request<Streaming<T>>) + Send + 'static,
+{
+    let mut request = streaming_request(messages);
+    interceptor(&mut request);
+    request
+}
+
+/// Create a regular (non-streaming) request with an interceptor
+///
+/// This function creates a standard tonic Request and applies the provided interceptor
+/// function to it. This is useful for adding metadata, headers, or other customizations
+/// to regular (non-streaming) requests.
+///
+/// # Arguments
+/// * `message` - The message to include in the request
+/// * `interceptor` - A function that can modify the request (e.g., to add metadata)
+///
+/// # Returns
+/// A Request<T> with the interceptor applied
+///
+/// # Example
+/// ```
+/// use bytes::Bytes;
+/// use prost::Message;
+/// use tonic::{metadata::MetadataValue, Request};
+/// use tonic_mock::request_with_interceptor;
+///
+/// #[derive(Clone, PartialEq, Message)]
+/// pub struct GetUserRequest {
+///     #[prost(string, tag = "1")]
+///     pub user_id: String,
+/// }
+///
+/// let request_msg = GetUserRequest { user_id: "user123".to_string() };
+///
+/// // Create a request with an interceptor that adds metadata
+/// let request = request_with_interceptor(request_msg, |req| {
+///     req.metadata_mut().insert(
+///         "authorization",
+///         MetadataValue::from_static("Bearer token123"),
+///     );
+/// });
+///
+/// // The request now has the authorization metadata
+/// assert_eq!(
+///     request.metadata().get("authorization").unwrap(),
+///     "Bearer token123"
+/// );
+/// ```
+pub fn request_with_interceptor<T, F>(message: T, mut interceptor: F) -> Request<T>
+where
+    T: Debug + Send + 'static,
+    F: FnMut(&mut Request<T>) + Send + 'static,
+{
+    let mut request = Request::new(message);
+    interceptor(&mut request);
+    request
 }
 
 /// a simple wrapper to process and validate streaming response
