@@ -64,7 +64,14 @@ impl Body for MockBody {
         self: Pin<&mut Self>,
         _cx: &mut Context<'_>,
     ) -> Poll<Option<Result<http_body::Frame<Self::Data>, Self::Error>>> {
-        Poll::Ready(None)
+        let this = self.get_mut();
+
+        // Return data from the queue
+        if let Some(data) = this.data.pop_front() {
+            Poll::Ready(Some(Ok(http_body::Frame::data(data))))
+        } else {
+            Poll::Ready(None)
+        }
     }
 }
 /// A [`Decoder`] that knows how to decode `U`.

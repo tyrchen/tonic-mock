@@ -13,11 +13,13 @@ The planned enhancements for the tonic-mock library represent a Level 3 complexi
 ## Component Complexity Breakdown
 
 ### Core Testing Infrastructure (Level 2)
+
 - Setting up test directory structure (Low complexity)
 - Creating unit tests for existing functionality (Moderate complexity)
 - Setting up CI/CD pipeline (Moderate complexity)
 
 ### API Extensions (Level 3)
+
 - Error injection implementation (High complexity)
   - Requires implementing custom stream handling
   - Needs thread-safe error pattern mechanisms
@@ -41,6 +43,7 @@ The planned enhancements for the tonic-mock library represent a Level 3 complexi
   - Must integrate all features coherently
 
 ### Documentation Enhancements (Level 2)
+
 - README improvements (Low complexity)
 - API documentation enhancement (Moderate complexity)
 - Examples creation (Moderate complexity)

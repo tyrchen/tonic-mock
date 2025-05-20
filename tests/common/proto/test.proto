@@ -1,0 +1,30 @@
+syntax = "proto3";
+
+package test;
+
+// Test service for integration tests
+service TestService {
+  // Unary request, unary response
+  rpc Unary(TestRequest) returns (TestResponse);
+
+  // Unary request, streaming response
+  rpc ServerStreaming(TestRequest) returns (stream TestResponse);
+
+  // Streaming request, unary response
+  rpc ClientStreaming(stream TestRequest) returns (TestResponse);
+
+  // Streaming request, streaming response
+  rpc BidirectionalStreaming(stream TestRequest) returns (stream TestResponse);
+}
+
+// Test request message
+message TestRequest {
+  bytes id = 1;
+  bytes data = 2;
+}
+
+// Test response message
+message TestResponse {
+  int32 code = 1;
+  string message = 2;
+}

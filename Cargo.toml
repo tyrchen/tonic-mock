@@ -26,4 +26,11 @@ tonic = "0.13"
 
 [dev-dependencies]
 async-stream = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+criterion = { version = "0.6", features = ["async_tokio"] }
+rand = "0.8"
+
+[[bench]]
+name = "stream_bench"
+harness = false
+path = "bench/stream_bench.rs"
