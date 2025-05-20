@@ -3,6 +3,7 @@
 pub mod proto;
 pub mod test_utils;
 
+// Use local test message and response types since the feature may not be enabled
 use bytes::Bytes;
 use prost::Message;
 

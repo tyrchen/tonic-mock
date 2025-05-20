@@ -16,19 +16,24 @@ keywords = ["tonic", "testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["test-utils"]
+test-utils = ["async-stream"]
+
 [dependencies]
+async-stream = { version = "0.3", optional = true }
 bytes = "1"
 futures = "0.3"
-http-body = "1"
 http = "1"
+http-body = "1"
 prost = "0.13"
 tonic = "0.13"
 
 [dev-dependencies]
-async-stream = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 criterion = { version = "0.6", features = ["async_tokio"] }
 rand = "0.8"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tonic-mock = { path = ".", features = ["test-utils"] }
 
 [[bench]]
 name = "stream_bench"

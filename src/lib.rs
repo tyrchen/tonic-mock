@@ -7,7 +7,15 @@ mod mock;
 
 pub use mock::{MockBody, ProstDecoder};
 
+#[cfg(feature = "test-utils")]
+pub mod test_utils;
+
+#[cfg(feature = "test-utils")]
+pub use test_utils::*;
+
+/// Type alias for the inner stream of a streaming response
 pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>;
+/// Type alias for a streaming response
 pub type StreamResponse<T> = Response<StreamResponseInner<T>>;
 
 /// Generate streaming request for GRPC

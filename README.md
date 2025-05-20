@@ -35,18 +35,64 @@ async fn service_push_works() -> anyhow::Result<()> {
 }
 ```
 
+## Features
+
+### Core Functionality
+
 Three main functions provided:
 
-- streaming_request: build streaming requests based on a vector of messages.
-- process_streaming_response: iterate the streaming response and call the closure user provided.
-- stream_to_vec: iterate the streaming response and generate a vector for further processing.
+- `streaming_request`: build streaming requests based on a vector of messages.
+- `process_streaming_response`: iterate the streaming response and call the closure user provided.
+- `stream_to_vec`: iterate the streaming response and generate a vector for further processing.
+
+### Test Utilities
+
+The crate also provides optional test utilities to help with testing gRPC services. Enable these with the `test-utils` feature:
+
+```toml
+[dependencies]
+tonic-mock = { version = "0.3", features = ["test-utils"] }
+```
+
+Test utilities include:
+
+- `TestRequest` and `TestResponse` types: Simple message types for testing
+- `create_test_messages`: Generate test messages with sequential IDs
+- `create_stream_response`: Create a streaming response from a vector of messages
+- `create_stream_response_with_errors`: Create a streaming response with errors at specified indices
+- `assert_message_eq`: Assert that a message matches expected values
+- `assert_response_eq`: Assert that a response matches expected values
+
+Example using test utilities:
+
+```rust
+use tonic_mock::test_utils::{TestRequest, TestResponse, create_test_messages, create_stream_response};
+use tonic_mock::{streaming_request, process_streaming_response};
+
+#[tokio::test]
+async fn test_my_service() {
+    // Create test messages
+    let messages = create_test_messages(5);
+
+    // Create a streaming request
+    let request = streaming_request(messages);
+
+    // Call your service
+    let response = my_service.call(request).await.unwrap();
+
+    // Process the response
+    process_streaming_response(response, |msg, idx| {
+        assert!(msg.is_ok());
+        // Assertions on the response
+    }).await;
+}
+```
 
 Note these functions are for testing purpose only. DO NOT use them in other cases.
 
-
 ## License
 
-`prost-helper` is distributed under the terms of MIT.
+`tonic-mock` is distributed under the terms of MIT.
 
 See [LICENSE](LICENSE.md) for details.
 
