@@ -1,6 +1,12 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
-use std::{fmt::Debug, pin::Pin, time::Duration};
+use std::{
+    fmt::Debug,
+    pin::Pin,
+    sync::{Arc, Mutex},
+    task::{Context, Poll},
+    time::Duration,
+};
 use tokio::time::timeout;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -404,4 +410,225 @@ where
         }
     }
     result
+}
+
+/// A bidirectional streaming test context that allows controlled message exchange
+///
+/// This utility provides a way to test bidirectional streaming interactions
+/// by offering methods to send client messages and receive server responses
+/// in a controlled manner.
+///
+/// # Usage
+/// ```ignore
+/// use futures::Stream;
+/// use prost::Message;
+/// use std::pin::Pin;
+/// use tokio::runtime::Runtime;
+/// use tonic::{Request, Response, Status, Streaming};
+/// use tonic_mock::{BidirectionalStreamingTest, test_utils::TestRequest, test_utils::TestResponse};
+///
+/// // Define your service method (a simplified version for the example)
+/// async fn bidirectional_service(
+///     request: Request<Streaming<TestRequest>>
+/// ) -> Result<Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>, Status> {
+///     // Real implementation will process the request stream
+///     // For this example, we'll create a simple echo service
+///     let mut in_stream = request.into_inner();
+///
+///     let out_stream = async_stream::try_stream! {
+///         while let Some(message) = in_stream.message().await? {
+///             let response = TestResponse::new(
+///                 123,
+///                 format!("Echo: {:?}", message.id)
+///             );
+///             yield response;
+///         }
+///     };
+///
+///     Ok(Response::new(Box::pin(out_stream)))
+/// }
+///
+/// // Now test the service
+/// let rt = Runtime::new().unwrap();
+/// rt.block_on(async {
+///     // Create the test context
+///     let mut test = BidirectionalStreamingTest::<TestRequest, TestResponse>::new(bidirectional_service);
+///
+///     // Send a message from client to server
+///     test.send_client_message(TestRequest::new("test1", "data1")).await;
+///
+///     // Get the server's response
+///     let response = test.get_server_response().await.unwrap();
+///     assert_eq!(response.code, 123);
+///
+///     // Send another message
+///     test.send_client_message(TestRequest::new("test2", "data2")).await;
+///
+///     // Get the response
+///     let response = test.get_server_response().await.unwrap();
+///     assert_eq!(response.code, 123);
+///
+///     // Complete the test
+///     test.complete().await;
+/// });
+/// ```
+pub struct BidirectionalStreamingTest<Req, Resp>
+where
+    Req: Message + Default + Send + 'static,
+    Resp: Message + Default + Send + 'static,
+{
+    client_messages: Arc<Mutex<Vec<Option<Req>>>>,
+    server_responses: Option<StreamResponseInner<Resp>>,
+    completed: bool,
+}
+
+impl<Req, Resp> BidirectionalStreamingTest<Req, Resp>
+where
+    Req: Message + Default + Send + 'static,
+    Resp: Message + Default + Send + 'static,
+{
+    /// Create a new bidirectional streaming test context with the specified service handler
+    ///
+    /// # Arguments
+    /// * `service_handler` - A function that handles the bidirectional streaming RPC
+    ///
+    /// # Returns
+    /// A new `BidirectionalStreamingTest` instance
+    pub fn new<F, Fut>(service_handler: F) -> Self
+    where
+        F: FnOnce(Request<Streaming<Req>>) -> Fut + Send + 'static,
+        Fut: std::future::Future<Output = Result<Response<StreamResponseInner<Resp>>, Status>>
+            + Send
+            + 'static,
+    {
+        // Create the shared message queue
+        let client_messages = Arc::new(Mutex::new(Vec::<Option<Req>>::new()));
+
+        // Create an empty streaming request
+        let empty_req_vec: Vec<Req> = Vec::new();
+        let streaming_req = streaming_request(empty_req_vec);
+
+        // Start the service handler
+        let rt = tokio::runtime::Handle::current();
+        let server_fut = rt.spawn(async move {
+            // Process the streaming request
+            match service_handler(streaming_req).await {
+                Ok(response) => Some(response.into_inner()),
+                Err(_) => None,
+            }
+        });
+
+        // Wait for the service to initialize
+        let server_responses = match rt.block_on(server_fut) {
+            Ok(Some(responses)) => Some(responses),
+            _ => None,
+        };
+
+        Self {
+            client_messages,
+            server_responses,
+            completed: false,
+        }
+    }
+
+    /// Send a message from the client to the service
+    ///
+    /// # Arguments
+    /// * `message` - The message to send
+    pub async fn send_client_message(&mut self, message: Req) {
+        if self.completed {
+            panic!("Cannot send message after test has been completed");
+        }
+
+        let mut messages = self.client_messages.lock().unwrap();
+        messages.push(Some(message));
+    }
+
+    /// Get the next response from the service
+    ///
+    /// # Returns
+    /// The next response message or None if there are no more messages
+    pub async fn get_server_response(&mut self) -> Option<Resp> {
+        if self.completed {
+            return None;
+        }
+
+        if let Some(ref mut responses) = self.server_responses {
+            match responses.next().await {
+                Some(Ok(resp)) => Some(resp),
+                Some(Err(_)) => None,
+                None => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Get the next response with a timeout
+    ///
+    /// # Arguments
+    /// * `timeout_duration` - Maximum time to wait for a response
+    ///
+    /// # Returns
+    /// The next response message, None if there are no more messages, or an error if timeout occurs
+    pub async fn get_server_response_with_timeout(
+        &mut self,
+        timeout_duration: Duration,
+    ) -> Result<Option<Resp>, Status> {
+        if self.completed {
+            return Ok(None);
+        }
+
+        if let Some(ref mut responses) = self.server_responses {
+            match timeout(timeout_duration, responses.next()).await {
+                Ok(Some(Ok(resp))) => Ok(Some(resp)),
+                Ok(Some(Err(status))) => Err(status),
+                Ok(None) => Ok(None),
+                Err(_) => Err(Status::deadline_exceeded(format!(
+                    "Timeout waiting for server response: exceeded {:?}",
+                    timeout_duration
+                ))),
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    /// Complete the bidirectional streaming test
+    ///
+    /// This signals that no more client messages will be sent
+    pub async fn complete(&mut self) {
+        if !self.completed {
+            let mut messages = self.client_messages.lock().unwrap();
+            messages.push(None); // Signal end of client stream
+            self.completed = true;
+        }
+    }
+}
+
+/// A mock stream for client messages in a bidirectional test
+struct MockClientStream<T> {
+    messages: Arc<Mutex<Vec<Option<T>>>>,
+}
+
+impl<T> Stream for MockClientStream<T>
+where
+    T: Message + Default + Send + 'static,
+{
+    type Item = Result<T, Status>;
+
+    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        let mut messages = self.messages.lock().unwrap();
+
+        if messages.is_empty() {
+            cx.waker().wake_by_ref();
+            return Poll::Pending;
+        }
+
+        let message = messages.remove(0);
+        match message {
+            Some(msg) => Poll::Ready(Some(Ok(msg))),
+            None => Poll::Ready(None), // End of stream
+        }
+    }
 }

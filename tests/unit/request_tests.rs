@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 #[cfg(test)]
 mod tests {
     use crate::common::{TestMessage, test_utils};
