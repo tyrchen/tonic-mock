@@ -1,12 +1,9 @@
 // Example showing how to test gRPC bidirectional streaming
 
-use futures::StreamExt;
 use prost::Message;
-use std::time::Duration;
-use tokio::sync::mpsc;
 use tonic::{Request, Response, Status, Streaming};
 use tonic_mock::{
-    StreamResponseInner, streaming_request,
+    StreamResponseInner, stream_to_vec, streaming_request,
     test_utils::{TestRequest, TestResponse},
 };
 
@@ -28,7 +25,7 @@ pub struct ExampleResponse {
 }
 
 // Our sample bidirectional streaming service
-async fn chat_service(
+async fn echo_service(
     request: Request<Streaming<ExampleRequest>>,
 ) -> Result<Response<StreamResponseInner<ExampleResponse>>, Status> {
     let mut request_stream = request.into_inner();
@@ -46,197 +43,163 @@ async fn chat_service(
         }
     };
 
+    // Return the response without explicit casting
     Ok(Response::new(Box::pin(response_stream)))
 }
 
-// A simple example of bidirectional streaming testing
-async fn run_bidirectional_test_example() {
-    println!("Testing bidirectional streaming with TestRequest/TestResponse...");
-
-    // Create channel pairs for request and response
-    let (client_tx, mut client_rx) = mpsc::channel::<TestRequest>(10);
-    let (service_tx, mut service_rx) = mpsc::channel::<TestResponse>(10);
-
-    // Task to collect client messages and process them
-    let service_task = tokio::spawn(async move {
-        println!("Service task started");
-
-        // Collect and process messages
-        let mut responses = Vec::new();
-
-        while let Some(message) = client_rx.recv().await {
-            let id_str = String::from_utf8_lossy(&message.id).to_string();
-            let data_str = String::from_utf8_lossy(&message.data).to_string();
-
-            println!("Service received: id={}, data={}", id_str, data_str);
-
-            // Create a response
-            let response =
-                TestResponse::new(200, format!("Echo: id={}, data={}", id_str, data_str));
-
-            // Add to responses and send it back
-            responses.push(response.clone());
-
-            // Send the response back to the client
-            if let Err(e) = service_tx.send(response).await {
-                println!("Error sending response: {}", e);
-                break;
-            }
-        }
-
-        println!("Service task completed with {} responses", responses.len());
-        responses
-    });
-
-    // Wait a bit to ensure everything is set up
-    println!("Test setup complete, waiting a bit...");
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Send client messages
-    println!("Sending client message 1...");
-    client_tx
-        .send(TestRequest::new("msg1", "Hello server!"))
-        .await
-        .unwrap();
-
-    // Give the service handler time to process
-    println!("Waiting for response...");
-    tokio::time::sleep(Duration::from_millis(100)).await;
-
-    // Get server response
-    match service_rx.recv().await {
-        Some(response) => {
-            println!(
-                "Received response 1: code={}, message={}",
-                response.code, response.message
-            );
-        }
-        None => {
-            println!("No response received for message 1");
-        }
-    }
-
-    // Send another message
-    println!("Sending client message 2...");
-    client_tx
-        .send(TestRequest::new("msg2", "How are you?"))
-        .await
-        .unwrap();
-
-    // Wait for response with timeout
-    println!("Waiting for response with timeout...");
-    match tokio::time::timeout(Duration::from_secs(1), service_rx.recv()).await {
-        Ok(Some(response)) => {
-            println!(
-                "Received response 2: code={}, message={}",
-                response.code, response.message
-            );
-        }
-        Ok(None) => {
-            println!("Channel closed without receiving response");
-        }
-        Err(_) => {
-            println!("Timeout waiting for response");
-        }
-    }
-
-    // Close the client channel to signal we're done
-    println!("Completing the test...");
-    drop(client_tx);
-
-    // Wait for the service task to complete
-    match service_task.await {
-        Ok(responses) => {
-            println!("Service task completed with {} responses", responses.len());
-        }
-        Err(e) => {
-            println!("Service task failed: {}", e);
-        }
-    }
-
-    println!("Test completed!");
-}
-
+// A concrete example using the direct approach with pre-made messages
 async fn run_direct_api_example() {
-    println!("\nTesting bidirectional streaming with custom ExampleRequest/ExampleResponse...");
+    println!("\nExample 1: Testing bidirectional streaming with pre-collected messages");
 
-    // Create a request using a channel
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<ExampleRequest>(10);
+    // Create messages to send
+    let messages = vec![
+        ExampleRequest {
+            user_id: "user123".to_string(),
+            message: "Hello chat!".to_string(),
+        },
+        ExampleRequest {
+            user_id: "user123".to_string(),
+            message: "How's the weather?".to_string(),
+        },
+    ];
 
-    // Collect messages in a separate task
-    let request_task = tokio::spawn(async move {
-        let mut requests = Vec::new();
-
-        // Receive all the messages
-        while let Some(req) = rx.recv().await {
-            requests.push(req);
-        }
-
-        // Return the collected requests
-        requests
-    });
-
-    // Send messages to the service
-    tx.send(ExampleRequest {
-        user_id: "user123".to_string(),
-        message: "Hello chat!".to_string(),
-    })
-    .await
-    .unwrap();
-
-    tx.send(ExampleRequest {
-        user_id: "user123".to_string(),
-        message: "How's the weather?".to_string(),
-    })
-    .await
-    .unwrap();
-
-    // Close the channel to signal end of messages
-    drop(tx);
-
-    // Wait for all messages to be collected
-    let messages = request_task.await.unwrap();
+    println!(
+        "- Created {} messages to send to the service",
+        messages.len()
+    );
 
     // Create a direct mock stream
     let request = streaming_request(messages);
 
-    // Call the chat service
-    match chat_service(request).await {
-        Ok(response) => {
-            let mut response_stream = response.into_inner();
+    println!("- Calling the echo service...");
 
-            // Process responses
-            let mut count = 0;
-            println!("Processing responses:");
-            while let Some(result) = response_stream.next().await {
-                count += 1;
+    // Call the service
+    match echo_service(request).await {
+        Ok(response) => {
+            println!("- Service call successful, processing responses");
+
+            // Process the stream by collecting into a vector
+            let results = stream_to_vec(response).await;
+
+            // Display the responses
+            for (i, result) in results.iter().enumerate() {
                 match result {
                     Ok(resp) => {
                         println!(
-                            "  Response {}: status={}, response={}",
-                            count, resp.status, resp.response
+                            "  Response {}: status={}, message={}",
+                            i + 1,
+                            resp.status,
+                            resp.response
                         );
                     }
                     Err(e) => {
-                        println!("  Error: {}", e);
+                        println!("  Error {}: {}", i + 1, e);
                     }
                 }
             }
-            println!("Received {} responses.", count);
+
+            println!("- Received {} total responses", results.len());
         }
         Err(status) => {
-            println!("Service call failed: {}", status);
+            println!("- Service call failed: {}", status);
         }
     }
 
-    println!("Example completed!");
+    println!("Example 1 completed!");
+}
+
+// A simpler example using TestRequest/TestResponse
+async fn run_test_utils_example() {
+    println!("\nExample 2: Testing with TestRequest/TestResponse");
+
+    // Create a test service that echoes messages with a counter
+    async fn test_echo_service(
+        request: Request<Streaming<TestRequest>>,
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
+        let mut request_stream = request.into_inner();
+        let mut counter = 0;
+
+        // Create response stream that echoes each request with a counter
+        let response_stream = async_stream::try_stream! {
+            while let Some(msg) = request_stream.message().await? {
+                counter += 1;
+                let id_str = String::from_utf8_lossy(&msg.id).to_string();
+                let data_str = String::from_utf8_lossy(&msg.data).to_string();
+
+                println!("  Service received message {}: id={}, data={}",
+                       counter, id_str, data_str);
+
+                // Echo message with counter
+                yield TestResponse::new(
+                    counter,  // Use counter as status code
+                    format!("Echo #{}: id={}, data={}", counter, id_str, data_str)
+                );
+            }
+            println!("  Service completed after processing {} messages", counter);
+        };
+
+        // Return the response without explicit casting
+        Ok(Response::new(Box::pin(response_stream)))
+    }
+
+    println!("- Creating test messages");
+
+    // Create test messages
+    let test_messages = vec![
+        TestRequest::new("msg1", "First message"),
+        TestRequest::new("msg2", "Second message"),
+        TestRequest::new("msg3", "Final message"),
+    ];
+
+    println!(
+        "- Sending {} messages to the test service",
+        test_messages.len()
+    );
+
+    // Create the streaming request
+    let request = streaming_request(test_messages);
+
+    // Call the service
+    match test_echo_service(request).await {
+        Ok(response) => {
+            println!("- Service call successful, processing responses");
+
+            // Convert the stream to a vector of results
+            let results = stream_to_vec(response).await;
+
+            // Check the results
+            println!("- Received {} responses:", results.len());
+            for (i, result) in results.iter().enumerate() {
+                match result {
+                    Ok(resp) => {
+                        println!(
+                            "  Response {}: code={}, message={}",
+                            i + 1,
+                            resp.code,
+                            resp.message
+                        );
+                    }
+                    Err(e) => {
+                        println!("  Error {}: {}", i + 1, e);
+                    }
+                }
+            }
+        }
+        Err(status) => {
+            println!("- Service call failed: {}", status);
+        }
+    }
+
+    println!("Example 2 completed!");
 }
 
 #[tokio::main]
 async fn main() {
-    // Run the bidirectional test example
-    run_bidirectional_test_example().await;
+    println!("=== Bidirectional Streaming Test Examples ===");
 
-    // Run the direct API example
+    // Run examples
     run_direct_api_example().await;
+    run_test_utils_example().await;
+
+    println!("\nAll examples completed successfully!");
 }

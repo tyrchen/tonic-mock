@@ -131,7 +131,9 @@ impl EchoServiceTrait for EchoService {
             }
         };
 
-        Ok(Response::new(Box::pin(stream)))
+        Ok(Response::new(
+            Box::pin(stream) as StreamResponseInner<TestResponse>
+        ))
     }
 }
 

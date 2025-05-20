@@ -17,7 +17,7 @@ pub use test_utils::*;
 /// Type alias for convenience
 ///
 /// The inner type of a streaming response
-pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
+pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + 'static>>;
 
 /// Type alias for convenience
 ///
@@ -55,9 +55,9 @@ pub type RequestInterceptor<T> = Box<dyn FnMut(&mut Request<T>) + Send>;
 ///
 pub fn streaming_request<T>(messages: Vec<T>) -> Request<Streaming<T>>
 where
-    T: Message + Default + 'static,
+    T: Message + Default + Send + 'static,
 {
-    let body = MockBody::new(messages);
+    let body = MockBody::<T>::new(messages);
     let decoder: ProstDecoder<T> = ProstDecoder::new();
     let stream = Streaming::new_request(decoder, body, None, None);
 
@@ -414,63 +414,74 @@ where
 
 /// A bidirectional streaming test context that allows controlled message exchange
 ///
-/// This utility provides a way to test bidirectional streaming interactions
-/// by offering methods to send client messages and receive server responses
-/// in a controlled manner.
+/// This utility provides a powerful way to test bidirectional streaming interactions
+/// for gRPC services. It offers a simple interface for sending client messages to a service
+/// and receiving server responses in a controlled manner.
 ///
-/// # Usage
-/// ```ignore
-/// use futures::Stream;
-/// use prost::Message;
-/// use std::pin::Pin;
-/// use tokio::runtime::Runtime;
+/// # Key Features
+///
+/// - **Simplified Testing**: Test bidirectional streaming without complex setup
+/// - **Controlled Message Flow**: Send messages and receive responses one by one
+/// - **Timeout Support**: Set timeouts for receiving responses to test timing behavior
+/// - **Clean Teardown**: Properly complete streams when testing is finished
+///
+/// # Usage Patterns
+///
+/// This utility supports two main usage patterns:
+///
+/// 1. **Sequential Pattern**: Send all messages, call complete(), then get all responses
+/// 2. **Interactive Pattern**: Send all messages, call complete(), then get responses one by one
+///
+/// # Important Usage Notes
+///
+/// - You **MUST** call `complete()` before trying to get any responses
+/// - For proper operation, send all client messages before calling `complete()`
+/// - After calling `complete()`, you cannot send more messages
+///
+/// # Example
+///
+/// ```no_run
+/// use std::time::Duration;
 /// use tonic::{Request, Response, Status, Streaming};
-/// use tonic_mock::{BidirectionalStreamingTest, test_utils::TestRequest, test_utils::TestResponse};
+/// use tonic_mock::{BidirectionalStreamingTest, StreamResponseInner, test_utils::TestRequest, test_utils::TestResponse};
 ///
-/// // Define your service method (a simplified version for the example)
-/// async fn bidirectional_service(
+/// # async fn example() {
+/// // Define a simple echo service for testing
+/// async fn echo_service(
 ///     request: Request<Streaming<TestRequest>>
-/// ) -> Result<Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + 'static>>>, Status> {
-///     // Real implementation will process the request stream
-///     // For this example, we'll create a simple echo service
-///     let mut in_stream = request.into_inner();
-///
-///     let out_stream = async_stream::try_stream! {
-///         while let Some(message) = in_stream.message().await? {
-///             let response = TestResponse::new(
-///                 123,
-///                 format!("Echo: {:?}", message.id)
-///             );
-///             yield response;
+/// ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
+///     let mut stream = request.into_inner();
+///     let response_stream = async_stream::try_stream! {
+///         while let Some(msg) = stream.message().await? {
+///             let id_str = String::from_utf8_lossy(&msg.id).to_string();
+///             yield TestResponse::new(200, format!("Echo: {}", id_str));
 ///         }
 ///     };
-///
-///     Ok(Response::new(Box::pin(out_stream)))
+///     Ok(Response::new(Box::pin(response_stream)))
 /// }
 ///
-/// // Now test the service
-/// let rt = Runtime::new().unwrap();
-/// rt.block_on(async {
-///     // Create the test context
-///     let mut test = BidirectionalStreamingTest::<TestRequest, TestResponse>::new(bidirectional_service);
+/// // Pattern 1: Send all messages, then get all responses
+/// let mut test = BidirectionalStreamingTest::new(echo_service);
+/// test.send_client_message(TestRequest::new("msg1", "data1")).await;
+/// test.send_client_message(TestRequest::new("msg2", "data2")).await;
+/// test.complete().await;  // MUST call complete() before getting responses
 ///
-///     // Send a message from client to server
-///     test.send_client_message(TestRequest::new("test1", "data1")).await;
+/// let response1 = test.get_server_response().await;
+/// let response2 = test.get_server_response().await;
 ///
-///     // Get the server's response
-///     let response = test.get_server_response().await.unwrap();
-///     assert_eq!(response.code, 123);
+/// // Pattern 2: Send all messages, then get responses one by one (interactive)
+/// let mut test2 = BidirectionalStreamingTest::new(echo_service);
+/// test2.send_client_message(TestRequest::new("msg1", "data1")).await;
+/// test2.send_client_message(TestRequest::new("msg2", "data2")).await;
+/// test2.complete().await;  // MUST call complete() before getting responses
 ///
-///     // Send another message
-///     test.send_client_message(TestRequest::new("test2", "data2")).await;
+/// // Now get responses one by one
+/// let response1 = test2.get_server_response().await;
+/// println!("Got first response: {:?}", response1);
 ///
-///     // Get the response
-///     let response = test.get_server_response().await.unwrap();
-///     assert_eq!(response.code, 123);
-///
-///     // Complete the test
-///     test.complete().await;
-/// });
+/// let response2 = test2.get_server_response().await;
+/// println!("Got second response: {:?}", response2);
+/// # }
 /// ```
 pub struct BidirectionalStreamingTest<Req, Resp>
 where
@@ -478,12 +489,14 @@ where
     Resp: Message + Default + Send + 'static,
 {
     // Channel for sending client messages to the service
-    client_tx: tokio::sync::mpsc::Sender<Req>,
-    // Task handling the service call
-    service_task:
-        Option<tokio::task::JoinHandle<Result<Response<StreamResponseInner<Resp>>, Status>>>,
-    // Server responses
-    server_responses: Option<StreamResponseInner<Resp>>,
+    client_tx: Option<tokio::sync::mpsc::Sender<Req>>,
+
+    // Signal to indicate the client is done sending messages
+    client_done_tx: Option<tokio::sync::oneshot::Sender<()>>,
+
+    // Receiver for server responses
+    server_rx: Option<tokio::sync::mpsc::Receiver<Result<Resp, Status>>>,
+
     // Flag to indicate if the test is completed
     completed: bool,
 }
@@ -495,11 +508,14 @@ where
 {
     /// Create a new bidirectional streaming test context with the specified service handler
     ///
+    /// This method takes a service handler function that implements a bidirectional streaming
+    /// gRPC service and creates a test context for it.
+    ///
     /// # Arguments
-    /// * `service_handler` - A function that handles the bidirectional streaming RPC
+    /// * `service_handler` - A function that handles the bidirectional streaming RPC.
     ///
     /// # Returns
-    /// A new `BidirectionalStreamingTest` instance
+    /// A new `BidirectionalStreamingTest` instance that you can use to interact with the service.
     pub fn new<F, Fut>(service_handler: F) -> Self
     where
         F: FnOnce(Request<Streaming<Req>>) -> Fut + Send + 'static,
@@ -507,91 +523,109 @@ where
             + Send
             + 'static,
     {
-        // Create channels
-        let (client_tx, _client_rx) = tokio::sync::mpsc::channel::<Req>(32);
+        // Create a channel for client messages
+        let (client_tx, client_rx) = tokio::sync::mpsc::channel::<Req>(32);
 
-        // Spawn a task to handle the client messages
-        let client_messages = Vec::<Req>::new();
+        // Create a oneshot channel to signal when client is done sending
+        let (client_done_tx, client_done_rx) = tokio::sync::oneshot::channel();
 
-        // Create a task to handle the service and forward messages from channels
-        let service_task = tokio::spawn(async move {
-            // Create a streaming request with an empty initial vector
-            let request = streaming_request(client_messages);
+        // Create a channel for server responses
+        let (server_tx, server_rx) = tokio::sync::mpsc::channel::<Result<Resp, Status>>(32);
 
-            // Get the inner streaming object to replace with our custom implementation
-            let stream = request.into_inner();
+        // Create a task to handle the service call
+        tokio::spawn(async move {
+            // Create the MockBody from the client_rx channel
+            let body = MockBody::from_channel(client_rx);
+            let decoder: ProstDecoder<Req> = ProstDecoder::new();
+            let stream = Streaming::new_request(decoder, body, None, None);
 
-            // Create a separate task that processes the service
-            let service_future = service_handler(Request::new(stream));
+            // Call the service with the request
+            let request = Request::new(stream);
+            match service_handler(request).await {
+                Ok(response) => {
+                    // Get the response stream
+                    let mut response_stream = response.into_inner();
 
-            // Run the service and return the result
-            service_future.await
+                    // Spawn a task to listen for the done signal
+                    tokio::spawn(async move {
+                        // Wait for done signal
+                        let _ = client_done_rx.await;
+                        // Once done, the task will exit and the channel will be closed
+                    });
+
+                    // Process all responses
+                    while let Some(resp) = response_stream.next().await {
+                        if server_tx.send(resp).await.is_err() {
+                            // The receiver has been dropped, stop processing
+                            break;
+                        }
+                    }
+                }
+                Err(status) => {
+                    // Service returned an error, forward it
+                    let _ = server_tx.send(Err(status)).await;
+                }
+            }
+
+            // When the task ends, the server_tx will be dropped, signaling the end of responses
         });
 
         Self {
-            client_tx,
-            service_task: Some(service_task),
-            server_responses: None,
+            client_tx: Some(client_tx),
+            client_done_tx: Some(client_done_tx),
+            server_rx: Some(server_rx),
             completed: false,
         }
     }
 
     /// Send a message from the client to the service
     ///
+    /// This method allows you to send a single message from the client to the service
+    /// under test. The message will be delivered to the service handler, which can then
+    /// process it and potentially generate a response.
+    ///
     /// # Arguments
-    /// * `message` - The message to send
+    /// * `message` - The message to send to the service
+    ///
+    /// # Panics
+    /// This method will panic if:
+    /// - It is called after `complete()` has been called
+    /// - The channel to the service is closed (which may indicate that the service has exited)
     pub async fn send_client_message(&mut self, message: Req) {
         if self.completed {
             panic!("Cannot send message after test has been completed");
         }
 
-        if self.client_tx.send(message).await.is_err() {
-            // The channel is closed, meaning the service has exited
-            panic!("Failed to send message to service: channel closed");
-        }
-    }
-
-    /// Ensure that the server responses are initialized
-    async fn ensure_server_responses_initialized(&mut self) -> bool {
-        if self.server_responses.is_none() {
-            if let Some(task) = self.service_task.take() {
-                match task.await {
-                    Ok(Ok(response)) => {
-                        self.server_responses = Some(response.into_inner());
-                        true
-                    }
-                    _ => false,
+        match &self.client_tx {
+            Some(tx) => {
+                if tx.send(message).await.is_err() {
+                    // The channel is closed, meaning the service has exited
+                    panic!("Failed to send message to service: channel closed");
                 }
-            } else {
-                false
             }
-        } else {
-            true
+            None => {
+                panic!("Cannot send message after test has been completed");
+            }
         }
     }
 
     /// Get the next response from the service
     ///
+    /// This method retrieves the next response from the service.
+    ///
     /// # Returns
     /// The next response message or None if there are no more messages
     pub async fn get_server_response(&mut self) -> Option<Resp> {
-        if self.completed {
-            return None;
-        }
-
-        // Make sure we have server responses initialized
-        if !self.ensure_server_responses_initialized().await {
-            return None;
-        }
-
-        if let Some(ref mut responses) = self.server_responses {
-            match responses.next().await {
+        match &mut self.server_rx {
+            Some(rx) => match rx.recv().await {
                 Some(Ok(resp)) => Some(resp),
-                Some(Err(_)) => None,
+                Some(Err(status)) => {
+                    eprintln!("Service returned error: {}", status);
+                    None
+                }
                 None => None,
-            }
-        } else {
-            None
+            },
+            None => None,
         }
     }
 
@@ -606,17 +640,8 @@ where
         &mut self,
         timeout_duration: Duration,
     ) -> Result<Option<Resp>, Status> {
-        if self.completed {
-            return Ok(None);
-        }
-
-        // Make sure we have server responses initialized
-        if !self.ensure_server_responses_initialized().await {
-            return Ok(None);
-        }
-
-        if let Some(ref mut responses) = self.server_responses {
-            match timeout(timeout_duration, responses.next()).await {
+        match &mut self.server_rx {
+            Some(rx) => match timeout(timeout_duration, rx.recv()).await {
                 Ok(Some(Ok(resp))) => Ok(Some(resp)),
                 Ok(Some(Err(status))) => Err(status),
                 Ok(None) => Ok(None),
@@ -624,20 +649,51 @@ where
                     "Timeout waiting for server response: exceeded {:?}",
                     timeout_duration
                 ))),
-            }
-        } else {
-            Ok(None)
+            },
+            None => Ok(None),
         }
     }
 
     /// Complete the bidirectional streaming test
     ///
-    /// This signals that no more client messages will be sent
+    /// This signals that no more client messages will be sent. When this method is called,
+    /// the client stream is closed, allowing the service to complete its processing.
+    ///
+    /// **IMPORTANT**: You must call this method before trying to get any responses.
+    /// After calling this method, you cannot send more messages.
     pub async fn complete(&mut self) {
         if !self.completed {
-            // Signal end of client stream by replacing the sender with a closed one
-            self.client_tx = tokio::sync::mpsc::channel::<Req>(1).0;
+            // Drop the client channel to signal no more messages
+            self.client_tx = None;
+
+            // Signal end of client stream
+            if let Some(done_tx) = self.client_done_tx.take() {
+                let _ = done_tx.send(());
+            }
+
             self.completed = true;
         }
+    }
+
+    /// Explicitly drop this test instance and clean up resources
+    ///
+    /// This will close all channels and signal completion.
+    /// It's automatically called when the test instance is dropped.
+    pub fn dispose(&mut self) {
+        // Drop all channels
+        self.client_tx = None;
+        self.client_done_tx = None;
+        self.server_rx = None;
+        self.completed = true;
+    }
+}
+
+impl<Req, Resp> Drop for BidirectionalStreamingTest<Req, Resp>
+where
+    Req: Message + Default + Send + 'static,
+    Resp: Message + Default + Send + 'static,
+{
+    fn drop(&mut self) {
+        self.dispose();
     }
 }

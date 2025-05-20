@@ -1,10 +1,10 @@
 # Tasks
 
-## Pending Tasks
+## Next Action Items
 
-- [ ] Implement Phase 2: API Extensions
-- [ ] Develop comprehensive documentation in Phase 3
-- [ ] Add performance benchmarks in Phase 4
+1. Add performance benchmarks for bidirectional streaming operations
+2. ~~Verify compatibility with the latest tonic and prost versions~~ ✅
+3. ~~Improve test coverage for src/test_utils.rs (currently only 16.67%)~~ ✅
 
 ## In Progress
 
@@ -12,7 +12,12 @@
 - [x] Error injection functionality
 - [x] Add configurable timeout for streaming operations
 - [x] Support for interceptors in mock requests
-- [ ] Add utility for testing bidirectional streaming
+- [x] Add utility for testing bidirectional streaming
+- [x] Add tutorial for common testing scenarios
+- [x] Improve inline documentation with more context
+- [ ] Implement automated release process
+- [x] Improve test coverage for bidirectional streaming functionality (+10.26%)
+- [x] Check compatibility with latest tonic and prost versions
 
 ## Completed Tasks
 
@@ -28,6 +33,12 @@
 - [x] Create benchmarks
 - [x] Set up CI/CD pipeline
 - [x] Allow clippy::needless_range_loop lint for the whole project
+- [x] Fix bidirectional streaming test API to prevent hanging issues
+- [x] Improve BidirectionalStreamingTest implementation for easier correct usage
+- [x] Add clear documentation on bidirectional streaming usage patterns
+- [x] Improve test coverage for bidirectional streaming (from 53.66% to 60.49%)
+- [x] Verify compatibility with the latest tonic and prost versions
+- [x] Improve test coverage for src/test_utils.rs (from 16.67% to 96.67%)
 
 ## Enhancement Plan
 
@@ -36,7 +47,8 @@
 - [x] Add configurable timeout for streaming operations
 - [x] Implement error injection capabilities for testing error handling
 - [x] Support for interceptors in mock requests
-- [ ] Add utility for testing bidirectional streaming
+- [x] Add utility for testing bidirectional streaming
+- [x] Fix issues with bidirectional streaming implementation
 
 ### Testing Improvements
 
@@ -44,35 +56,44 @@
 - [x] Add integration tests with sample gRPC service
 - [x] Implement property-based testing for robustness
 - [x] Add benchmarks for performance validation
+- [ ] Add performance tests for bidirectional streaming utility
+- [x] Improve test coverage for bidirectional streaming (current coverage):
+  - [x] `src/lib.rs`: 73/117 lines covered (62.39%, +10.26%)
+  - [x] `src/mock.rs`: 46/58 lines covered (79.31%, +3.45%)
+  - [x] `src/test_utils.rs`: 29/30 lines covered (96.67%, +80.00%)
 
 ### Documentation Enhancements
 
 - [x] Expand README with more detailed examples
-- [ ] Add tutorial for common testing scenarios
+- [x] Add tutorial for common testing scenarios
 - [x] Create example project demonstrating best practices
-- [ ] Improve inline documentation with more context
+- [x] Improve inline documentation with more context
+- [x] Document proper usage patterns for bidirectional streaming
 
 ### Infrastructure
 
 - [x] Set up CI/CD pipeline for automated testing
 - [x] Add code coverage reporting
 - [ ] Implement automated release process
-- [ ] Add compatibility tests for different tonic versions
+- [x] Add compatibility tests for different tonic versions
 
 ## Implementation Priorities
 
 1. ~~Comprehensive test suite (highest priority)~~ ✅
-2. Core API extensions (in progress)
-3. Documentation improvements
-4. Infrastructure enhancements
+2. ~~Core API extensions~~ ✅
+3. ~~Documentation improvements~~ ✅
+4. ~~Improve test coverage for bidirectional streaming~~ ✅
+5. **Performance benchmarking and optimization (current focus) 📌**
+6. Infrastructure enhancements
 
 ## Backlog
 
-- [ ] Review test coverage and identify gaps
-- [ ] Check compatibility with latest tonic and prost versions
+- [x] Review test coverage and identify gaps
+- [x] Check compatibility with latest tonic and prost versions
 - [ ] Identify potential areas for optimization
 - [x] Consider adding more comprehensive example code
 - [ ] Evaluate error handling robustness
+- [ ] Add performance tests for streaming operations
 
 ## Ideas for Enhancement
 
@@ -81,3 +102,4 @@
 - [ ] Integration with other testing frameworks
 - [ ] Performance benchmarks for large message volumes
 - [ ] Additional documentation on best practices
+- [ ] Create comprehensive tutorial for bidirectional streaming testing

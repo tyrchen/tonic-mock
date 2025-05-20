@@ -10,6 +10,7 @@ mod unit {
     pub mod mock_tests;
     pub mod request_tests;
     pub mod response_tests;
+    pub mod test_utils_tests;
 }
 
 // Integration tests

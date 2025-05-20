@@ -13,7 +13,7 @@ mod tests {
     use tokio::runtime::Runtime;
     use tonic::{Request, Response, Status, Streaming};
     use tonic_mock::{
-        StreamResponseInner, streaming_request,
+        BidirectionalStreamingTest, StreamResponseInner, streaming_request,
         test_utils::{TestRequest, TestResponse},
     };
 
@@ -128,8 +128,7 @@ mod tests {
                 // Explicitly annotate the Box::pin operation to help type inference
                 Ok::<Response<StreamResponseInner<TestResponse>>, Status>(Response::new(Box::pin(
                     stream,
-                )
-                    as StreamResponseInner<TestResponse>))
+                )))
             };
 
             // Create test messages
@@ -162,5 +161,166 @@ mod tests {
             // No more responses
             assert!(response_stream.next().await.is_none());
         });
+    }
+
+    // Test using the BidirectionalStreamingTest utility
+    #[test]
+    fn test_bidirectional_streaming_test_utility() {
+        let rt = Runtime::new().unwrap();
+
+        rt.block_on(async {
+            // Simple echo service that just echoes back the message with a code of 200
+            async fn simple_echo_service(
+                request: Request<Streaming<TestRequest>>,
+            ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
+                let mut stream = request.into_inner();
+
+                let response_stream = async_stream::try_stream! {
+                    while let Some(msg) = stream.message().await? {
+                        // Create a simple response without delay
+                        let id_str = String::from_utf8_lossy(&msg.id).to_string();
+                        yield TestResponse::new(
+                            200,
+                            format!("Echo: {}", id_str)
+                        );
+                    }
+                };
+
+                Ok(Response::new(Box::pin(response_stream)))
+            }
+
+            // Create a test context
+            let mut test = BidirectionalStreamingTest::new(simple_echo_service);
+
+            // Send a message
+            test.send_client_message(TestRequest::new("test_id", "test_data"))
+                .await;
+
+            // Get response with a timeout BEFORE completion
+            match test
+                .get_server_response_with_timeout(Duration::from_secs(1))
+                .await
+            {
+                Ok(Some(resp)) => {
+                    assert_eq!(resp.code, 200);
+                    assert!(resp.message.contains("Echo: test_id"));
+                }
+                Ok(None) => panic!("Expected a response but got None"),
+                Err(status) => panic!("Got error: {}", status),
+            }
+
+            // Now complete the test
+            test.complete().await;
+        });
+    }
+
+    #[tokio::test]
+    async fn test_bidirectional_streaming_dispose() {
+        // Create a test context
+        let mut test = BidirectionalStreamingTest::new(echo_service);
+
+        // Send a message
+        test.send_client_message(TestRequest::new("dispose-test", "data"))
+            .await;
+
+        // Explicitly dispose of the test
+        test.dispose();
+
+        // Verify that getting responses after dispose returns None
+        let response = test.get_server_response().await;
+        assert!(response.is_none(), "Expected None response after dispose");
+
+        // Try with timeout as well
+        let response = test
+            .get_server_response_with_timeout(Duration::from_millis(50))
+            .await;
+        assert!(
+            matches!(response, Ok(None)),
+            "Expected Ok(None) response after dispose"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bidirectional_streaming_complete_idempotent() {
+        // Create a test context
+        let mut test = BidirectionalStreamingTest::new(echo_service);
+
+        // Send a message
+        test.send_client_message(TestRequest::new("complete-test", "data"))
+            .await;
+
+        // Call complete multiple times (should be idempotent)
+        test.complete().await;
+        test.complete().await; // Second call should be a no-op
+
+        // We should still be able to get the response
+        let response = test.get_server_response().await;
+        assert!(
+            response.is_some(),
+            "Expected a response after multiple complete calls"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_bidirectional_streaming_service_error() {
+        // Create a service that returns an error
+        async fn error_service(
+            _request: Request<Streaming<TestRequest>>,
+        ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
+            Err(Status::internal("Test error"))
+        }
+
+        // Create a test context with the error service
+        let mut test = BidirectionalStreamingTest::<TestRequest, TestResponse>::new(error_service);
+
+        // Send a message
+        test.send_client_message(TestRequest::new("error-test", "data"))
+            .await;
+
+        // Complete the test
+        test.complete().await;
+
+        // We should get None because the service returned an error
+        let response = test.get_server_response().await;
+        assert!(
+            response.is_none(),
+            "Expected None response from error service"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_timeout_on_empty_stream() {
+        // Create a service that never yields responses
+        async fn empty_service(
+            _request: Request<Streaming<TestRequest>>,
+        ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
+            // Create an empty stream that never yields anything
+            let stream = async_stream::try_stream! {
+                // Stream never yields any items, but we need to specify the Result type
+                if false {
+                    yield TestResponse::new(0, "This will never be returned");
+                }
+            };
+            Ok(Response::new(Box::pin(stream)))
+        }
+
+        // Create a test context with the empty service
+        let mut test = BidirectionalStreamingTest::<TestRequest, TestResponse>::new(empty_service);
+
+        // Send a message and complete
+        test.send_client_message(TestRequest::new("timeout-test", "data"))
+            .await;
+        test.complete().await;
+
+        // Try with a short timeout
+        let result = test
+            .get_server_response_with_timeout(Duration::from_millis(50))
+            .await;
+
+        // It should be Ok(None) because the stream is empty but didn't error
+        match result {
+            Ok(None) => (), // Expected
+            other => panic!("Expected Ok(None), got {:?}", other),
+        }
     }
 }

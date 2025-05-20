@@ -49,6 +49,59 @@ Seven main functions provided:
 - `stream_to_vec`: iterate the streaming response and generate a vector for further processing.
 - `stream_to_vec_with_timeout`: iterate the streaming response with a timeout and generate a vector.
 
+### Bidirectional Streaming Testing
+
+The crate provides a `BidirectionalStreamingTest` utility for fine-grained testing of bidirectional streaming services:
+
+```rust
+use std::time::Duration;
+use tokio::runtime::Runtime;
+use tonic_mock::{BidirectionalStreamingTest, test_utils::TestRequest, test_utils::TestResponse};
+
+// Create a runtime
+let rt = Runtime::new().unwrap();
+
+rt.block_on(async {
+    // Create a test context with your service function
+    let mut test = BidirectionalStreamingTest::new(my_bidirectional_service);
+
+    // Send messages one by one and check responses
+    test.send_client_message(TestRequest::new("msg1", "First message")).await;
+
+    // Get response
+    if let Some(response) = test.get_server_response().await {
+        // Verify response
+        assert_eq!(response.code, 200);
+        assert!(response.message.contains("First message"));
+    }
+
+    // You can also use timeouts
+    match test.get_server_response_with_timeout(Duration::from_millis(100)).await {
+        Ok(Some(resp)) => {
+            // Handle response
+        },
+        Ok(None) => {
+            // No more responses
+        },
+        Err(status) => {
+            // Timeout or other error
+        },
+    }
+
+    // Complete the test when done
+    test.complete().await;
+});
+```
+
+Key features of `BidirectionalStreamingTest`:
+
+- Send messages one by one to the service
+- Receive and test responses individually
+- Support for timeouts when receiving responses
+- More control over message flow compared to using a pre-collected vector
+
+For a complete example, see `examples/bidirectional_streaming_test_api.rs`.
+
 ### Request Interceptors
 
 The crate provides support for request interceptors, which allow you to modify requests before they are sent. This is useful for adding metadata, headers, or performing other customizations:

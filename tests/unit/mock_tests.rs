@@ -11,13 +11,13 @@ mod tests {
     fn test_mock_body_creation() {
         // Test with empty messages
         let empty_messages: Vec<TestMessage> = Vec::new();
-        let body = MockBody::new(empty_messages);
+        let body = MockBody::<TestMessage>::new(empty_messages);
         assert_eq!(body.len(), 0);
         assert!(body.is_empty());
 
         // Test with single message
         let single_message = vec![TestMessage::new("1", "test_data")];
-        let body = MockBody::new(single_message);
+        let body = MockBody::<TestMessage>::new(single_message);
         assert_eq!(body.len(), 1);
         assert!(!body.is_empty());
 
@@ -27,7 +27,7 @@ mod tests {
             TestMessage::new("2", "data2"),
             TestMessage::new("3", "data3"),
         ];
-        let body = MockBody::new(multiple_messages);
+        let body = MockBody::<TestMessage>::new(multiple_messages);
         assert_eq!(body.len(), 3);
         assert!(!body.is_empty());
     }
@@ -54,7 +54,7 @@ mod tests {
             TestMessage::new("1", "data1"),
             TestMessage::new("2", "data2"),
         ];
-        let mut body = MockBody::new(messages);
+        let mut body = MockBody::<TestMessage>::new(messages);
 
         // Test that the body behaves as expected for http_body::Body
         use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};

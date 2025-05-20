@@ -27,13 +27,13 @@ futures = "0.3"
 http = "1"
 http-body = "1"
 prost = "0.13"
-tokio = { version = "1", features = ["time"] }
+tokio = { version = "1", features = ["time", "rt-multi-thread", "macros"] }
+tokio-test = "0.4.4"
 tonic = "0.13"
 
 [dev-dependencies]
 criterion = { version = "0.6", features = ["async_tokio"] }
 rand = "0.8"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 tonic-mock = { path = ".", features = ["test-utils"] }
 
 [[bench]]
