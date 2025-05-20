@@ -8,13 +8,12 @@
 #![allow(clippy::needless_range_loop)]
 
 use bytes::Bytes;
-use futures::Stream;
-use std::{cell::Cell, pin::Pin, time::Duration};
+use std::{cell::Cell, time::Duration};
 use tokio::runtime::Runtime;
 use tonic::{Request, Response, Status, Streaming};
 use tonic_mock::{
-    process_streaming_response, request_with_interceptor, stream_to_vec, streaming_request,
-    streaming_request_with_interceptor,
+    StreamResponseInner, process_streaming_response, request_with_interceptor, stream_to_vec,
+    streaming_request, streaming_request_with_interceptor,
     test_utils::{
         TestRequest, TestResponse, assert_response_eq, create_stream_response_with_errors,
         create_test_messages,
@@ -40,19 +39,13 @@ trait EchoServiceTrait {
     async fn server_streaming(
         &self,
         request: Request<TestRequest>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    >;
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status>;
 
     // Bidirectional streaming endpoint - client and server exchange multiple messages
     async fn bidirectional_streaming(
         &self,
         request: Request<Streaming<TestRequest>>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    >;
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status>;
 }
 
 // Implement the service
@@ -80,10 +73,7 @@ impl EchoServiceTrait for EchoService {
     async fn server_streaming(
         &self,
         request: Request<TestRequest>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    > {
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
         let message = request.into_inner();
         let id_str = String::from_utf8_lossy(&message.id).to_string();
 
@@ -116,10 +106,7 @@ impl EchoServiceTrait for EchoService {
     async fn bidirectional_streaming(
         &self,
         request: Request<Streaming<TestRequest>>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    > {
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
         let mut in_stream = request.into_inner();
 
         // Create a collection to store all messages without holding references to in_stream
@@ -396,10 +383,7 @@ impl EchoServiceTrait for TimeoutEchoService {
     async fn server_streaming(
         &self,
         request: Request<TestRequest>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    > {
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
         let message = request.into_inner();
         let id_str = String::from_utf8_lossy(&message.id).to_string();
 
@@ -423,10 +407,7 @@ impl EchoServiceTrait for TimeoutEchoService {
     async fn bidirectional_streaming(
         &self,
         request: Request<Streaming<TestRequest>>,
-    ) -> Result<
-        Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>,
-        Status,
-    > {
+    ) -> Result<Response<StreamResponseInner<TestResponse>>, Status> {
         // Just delegate to the regular service
         EchoService.bidirectional_streaming(request).await
     }

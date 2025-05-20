@@ -6,6 +6,7 @@ pub mod common;
 // Unit tests
 #[cfg(test)]
 mod unit {
+    pub mod bidirectional_tests;
     pub mod mock_tests;
     pub mod request_tests;
     pub mod response_tests;
@@ -14,6 +15,7 @@ mod unit {
 // Integration tests
 #[cfg(test)]
 mod integration {
+    pub mod bidirectional_test;
     pub mod sample_service;
 }
 

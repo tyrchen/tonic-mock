@@ -1,12 +1,6 @@
 use futures::{Stream, StreamExt};
 use prost::Message;
-use std::{
-    fmt::Debug,
-    pin::Pin,
-    sync::{Arc, Mutex},
-    task::{Context, Poll},
-    time::Duration,
-};
+use std::{fmt::Debug, pin::Pin, time::Duration};
 use tokio::time::timeout;
 use tonic::{Request, Response, Status, Streaming};
 
@@ -20,10 +14,16 @@ pub mod test_utils;
 #[cfg(feature = "test-utils")]
 pub use test_utils::*;
 
-/// Type alias for the inner stream of a streaming response
-pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send + Sync>>;
-/// Type alias for a streaming response
+/// Type alias for convenience
+///
+/// The inner type of a streaming response
+pub type StreamResponseInner<T> = Pin<Box<dyn Stream<Item = Result<T, Status>> + Send>>;
+
+/// Type alias for convenience
+///
+/// A streaming response from a mock service
 pub type StreamResponse<T> = Response<StreamResponseInner<T>>;
+
 /// Type alias for a request interceptor function
 pub type RequestInterceptor<T> = Box<dyn FnMut(&mut Request<T>) + Send>;
 
@@ -430,7 +430,7 @@ where
 /// // Define your service method (a simplified version for the example)
 /// async fn bidirectional_service(
 ///     request: Request<Streaming<TestRequest>>
-/// ) -> Result<Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + Sync + 'static>>>, Status> {
+/// ) -> Result<Response<Pin<Box<dyn Stream<Item = Result<TestResponse, Status>> + Send + 'static>>>, Status> {
 ///     // Real implementation will process the request stream
 ///     // For this example, we'll create a simple echo service
 ///     let mut in_stream = request.into_inner();
@@ -477,8 +477,14 @@ where
     Req: Message + Default + Send + 'static,
     Resp: Message + Default + Send + 'static,
 {
-    client_messages: Arc<Mutex<Vec<Option<Req>>>>,
+    // Channel for sending client messages to the service
+    client_tx: tokio::sync::mpsc::Sender<Req>,
+    // Task handling the service call
+    service_task:
+        Option<tokio::task::JoinHandle<Result<Response<StreamResponseInner<Resp>>, Status>>>,
+    // Server responses
     server_responses: Option<StreamResponseInner<Resp>>,
+    // Flag to indicate if the test is completed
     completed: bool,
 }
 
@@ -501,32 +507,31 @@ where
             + Send
             + 'static,
     {
-        // Create the shared message queue
-        let client_messages = Arc::new(Mutex::new(Vec::<Option<Req>>::new()));
+        // Create channels
+        let (client_tx, _client_rx) = tokio::sync::mpsc::channel::<Req>(32);
 
-        // Create an empty streaming request
-        let empty_req_vec: Vec<Req> = Vec::new();
-        let streaming_req = streaming_request(empty_req_vec);
+        // Spawn a task to handle the client messages
+        let client_messages = Vec::<Req>::new();
 
-        // Start the service handler
-        let rt = tokio::runtime::Handle::current();
-        let server_fut = rt.spawn(async move {
-            // Process the streaming request
-            match service_handler(streaming_req).await {
-                Ok(response) => Some(response.into_inner()),
-                Err(_) => None,
-            }
+        // Create a task to handle the service and forward messages from channels
+        let service_task = tokio::spawn(async move {
+            // Create a streaming request with an empty initial vector
+            let request = streaming_request(client_messages);
+
+            // Get the inner streaming object to replace with our custom implementation
+            let stream = request.into_inner();
+
+            // Create a separate task that processes the service
+            let service_future = service_handler(Request::new(stream));
+
+            // Run the service and return the result
+            service_future.await
         });
 
-        // Wait for the service to initialize
-        let server_responses = match rt.block_on(server_fut) {
-            Ok(Some(responses)) => Some(responses),
-            _ => None,
-        };
-
         Self {
-            client_messages,
-            server_responses,
+            client_tx,
+            service_task: Some(service_task),
+            server_responses: None,
             completed: false,
         }
     }
@@ -540,8 +545,29 @@ where
             panic!("Cannot send message after test has been completed");
         }
 
-        let mut messages = self.client_messages.lock().unwrap();
-        messages.push(Some(message));
+        if self.client_tx.send(message).await.is_err() {
+            // The channel is closed, meaning the service has exited
+            panic!("Failed to send message to service: channel closed");
+        }
+    }
+
+    /// Ensure that the server responses are initialized
+    async fn ensure_server_responses_initialized(&mut self) -> bool {
+        if self.server_responses.is_none() {
+            if let Some(task) = self.service_task.take() {
+                match task.await {
+                    Ok(Ok(response)) => {
+                        self.server_responses = Some(response.into_inner());
+                        true
+                    }
+                    _ => false,
+                }
+            } else {
+                false
+            }
+        } else {
+            true
+        }
     }
 
     /// Get the next response from the service
@@ -550,6 +576,11 @@ where
     /// The next response message or None if there are no more messages
     pub async fn get_server_response(&mut self) -> Option<Resp> {
         if self.completed {
+            return None;
+        }
+
+        // Make sure we have server responses initialized
+        if !self.ensure_server_responses_initialized().await {
             return None;
         }
 
@@ -579,6 +610,11 @@ where
             return Ok(None);
         }
 
+        // Make sure we have server responses initialized
+        if !self.ensure_server_responses_initialized().await {
+            return Ok(None);
+        }
+
         if let Some(ref mut responses) = self.server_responses {
             match timeout(timeout_duration, responses.next()).await {
                 Ok(Some(Ok(resp))) => Ok(Some(resp)),
@@ -599,36 +635,9 @@ where
     /// This signals that no more client messages will be sent
     pub async fn complete(&mut self) {
         if !self.completed {
-            let mut messages = self.client_messages.lock().unwrap();
-            messages.push(None); // Signal end of client stream
+            // Signal end of client stream by replacing the sender with a closed one
+            self.client_tx = tokio::sync::mpsc::channel::<Req>(1).0;
             self.completed = true;
-        }
-    }
-}
-
-/// A mock stream for client messages in a bidirectional test
-struct MockClientStream<T> {
-    messages: Arc<Mutex<Vec<Option<T>>>>,
-}
-
-impl<T> Stream for MockClientStream<T>
-where
-    T: Message + Default + Send + 'static,
-{
-    type Item = Result<T, Status>;
-
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let mut messages = self.messages.lock().unwrap();
-
-        if messages.is_empty() {
-            cx.waker().wake_by_ref();
-            return Poll::Pending;
-        }
-
-        let message = messages.remove(0);
-        match message {
-            Some(msg) => Poll::Ready(Some(Ok(msg))),
-            None => Poll::Ready(None), // End of stream
         }
     }
 }
