@@ -86,6 +86,8 @@ module, but are exposed for advanced use cases where direct control over the gRP
 is needed.
 */
 
+#![allow(clippy::result_large_err)]
+
 use bytes::{Bytes, BytesMut};
 use http::{Uri, uri::PathAndQuery};
 use prost::Message;
