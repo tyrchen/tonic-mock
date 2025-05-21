@@ -1,8 +1,8 @@
 [package]
 name = "tonic-mock"
-version = "0.3.0"
+version = "0.4.0"
 authors = ["Tyr Chen <tyr.chen@gmail.com>"]
-edition = "2018"
+edition = "2024"
 license = "MIT"
 documentation = "https://docs.rs/tonic-mock"
 repository = "https://github.com/tyrchen/tonic-mock"
@@ -16,14 +16,28 @@ keywords = ["tonic", "testing"]
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[features]
+default = ["test-utils"]
+test-utils = ["async-stream"]
+
 [dependencies]
+async-stream = { version = "0.3", optional = true }
 bytes = "1"
 futures = "0.3"
-http-body = "0.4"
-http = "0.2"
-prost = "0.12"
-tonic = "0.11"
+http = "1"
+http-body = "1"
+http-body-util = "0.1.3"
+prost = "0.13"
+tokio = { version = "1", features = ["time", "rt-multi-thread", "macros"] }
+tokio-test = "0.4.4"
+tonic = "0.13"
 
 [dev-dependencies]
-async-stream = "0.3"
-tokio = { version = "1", features = ["rt-multi-thread"] }
+criterion = { version = "0.6", features = ["async_tokio"] }
+rand = "0.8"
+tonic-mock = { path = ".", features = ["test-utils"] }
+
+[[bench]]
+name = "stream_bench"
+harness = false
+path = "bench/stream_bench.rs"
