@@ -3,6 +3,37 @@
 All notable changes to this project will be documented in this file. See [conventional commits](https://www.conventionalcommits.org/) for commit guidelines.
 
 ---
+## [0.4.0](https://github.com/tyrchen/tonic-mock/compare/v0.3.0..v0.4.0) - 2025-05-21
+
+### Features
+
+- update deps - ([2751a69](https://github.com/tyrchen/tonic-mock/commit/2751a6902bb93fa2dd5effbe6886b24ff5262e30)) - Tyr Chen
+- add cursor rules and initialize memory bank - ([a5e5e64](https://github.com/tyrchen/tonic-mock/commit/a5e5e640b11f47c757bed38547932defc64b4dbc)) - Tyr Chen
+- enter PLAN mode - ([1d57545](https://github.com/tyrchen/tonic-mock/commit/1d57545371069b2acab13043fe7ccdb4c66a767f)) - Tyr Chen
+- add tests - ([6a516e3](https://github.com/tyrchen/tonic-mock/commit/6a516e3d5f5fdcb6bed9f3ef86d626b3464f4dff)) - Tyr Chen
+- add test utils - ([620d0e1](https://github.com/tyrchen/tonic-mock/commit/620d0e1b5c7aadf80f148afa3aab001d9074ceab)) - Tyr Chen
+- add example code - ([9b75f70](https://github.com/tyrchen/tonic-mock/commit/9b75f7064f5ad63f0dabd9ad5cc2815b0add8f95)) - Tyr Chen
+- support configurable timeout - ([c81034c](https://github.com/tyrchen/tonic-mock/commit/c81034c82e330b6774c872c232a547fe1aa09923)) - Tyr Chen
+- support interceptor test - ([61098a9](https://github.com/tyrchen/tonic-mock/commit/61098a9c86abd3e0244d0e4223e91bb54b1e3662)) - Tyr Chen
+- add bidirectional utility functions - ([92297a4](https://github.com/tyrchen/tonic-mock/commit/92297a47c4057838d5dc2a10f6227c29f31f0f9b)) - Tyr Chen
+- add tests for bidirectional - ([0d9efb3](https://github.com/tyrchen/tonic-mock/commit/0d9efb39b8061b0d31f059d41c124a2495092bc0)) - Tyr Chen
+- add docs and improve code - ([44ad49a](https://github.com/tyrchen/tonic-mock/commit/44ad49a34ba4917b9b9cb94b072242cc942d0bf4)) - Tyr Chen
+- add grpc mock - ([53ac196](https://github.com/tyrchen/tonic-mock/commit/53ac19675ed5f2c94ce21f446b27748186a8c6bc)) - Tyr Chen
+
+### Miscellaneous Chores
+
+- update project - ([d0ce2b3](https://github.com/tyrchen/tonic-mock/commit/d0ce2b395031827a222d0844513d0594f651dac0)) - Tyr Chen
+- fix lint issue - ([8122486](https://github.com/tyrchen/tonic-mock/commit/81224863808fa798e7794abdbdf1c93aaeeaaa8a)) - Tyr Chen
+- fix clippy - ([1890109](https://github.com/tyrchen/tonic-mock/commit/1890109054794ad3aee98f0e34dd0836a0a863c2)) - Tyr Chen
+
+### Other
+
+- Update CHANGELOG.md - ([d64d73c](https://github.com/tyrchen/tonic-mock/commit/d64d73c407208dbe628babebcd24054cfcff7aa4)) - Tyr Chen
+- Merge pull request #6 from tyrchen/feature/upgrade-tonic-mock-with-ai
+
+Feature/upgrade tonic mock with ai - ([4b0d338](https://github.com/tyrchen/tonic-mock/commit/4b0d3385a3fbf2a7175f86cd20d29df85c5edfbf)) - Tyr Chen
+
+---
 ## [0.3.0] - 2024-05-07
 
 ### Miscellaneous Chores
