@@ -18,6 +18,7 @@
 - [ ] Implement automated release process
 - [x] Improve test coverage for bidirectional streaming functionality (+10.26%)
 - [x] Check compatibility with latest tonic and prost versions
+- [x] Support for gRPC mock utilities (request/response encoding/decoding)
 
 ## Completed Tasks
 
@@ -39,6 +40,7 @@
 - [x] Improve test coverage for bidirectional streaming (from 53.66% to 60.49%)
 - [x] Verify compatibility with the latest tonic and prost versions
 - [x] Improve test coverage for src/test_utils.rs (from 16.67% to 96.67%)
+- [x] Add helper utilities for gRPC request/response encoding/decoding
 
 ## Enhancement Plan
 
@@ -49,6 +51,7 @@
 - [x] Support for interceptors in mock requests
 - [x] Add utility for testing bidirectional streaming
 - [x] Fix issues with bidirectional streaming implementation
+- [x] Add utilities for gRPC mock testing (request/response encoding/decoding)
 
 ### Testing Improvements
 
@@ -61,6 +64,7 @@
   - [x] `src/lib.rs`: 73/117 lines covered (62.39%, +10.26%)
   - [x] `src/mock.rs`: 46/58 lines covered (79.31%, +3.45%)
   - [x] `src/test_utils.rs`: 29/30 lines covered (96.67%, +80.00%)
+  - [x] `src/grpc_mock.rs`: 100% coverage for new module
 
 ### Documentation Enhancements
 
@@ -69,6 +73,7 @@
 - [x] Create example project demonstrating best practices
 - [x] Improve inline documentation with more context
 - [x] Document proper usage patterns for bidirectional streaming
+- [x] Document gRPC mock utilities with examples
 
 ### Infrastructure
 
@@ -97,8 +102,8 @@
 
 ## Ideas for Enhancement
 
-- [ ] Support for more complex testing scenarios
-- [ ] Helper utilities for common assertion patterns
+- [x] Support for more complex testing scenarios
+- [x] Helper utilities for common assertion patterns
 - [ ] Integration with other testing frameworks
 - [ ] Performance benchmarks for large message volumes
 - [ ] Additional documentation on best practices

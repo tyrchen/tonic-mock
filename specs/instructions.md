@@ -19,3 +19,9 @@ The @bidirectional_test_example.rs hang with info. And doc test also hang (shoul
 This doesn't fix the issue - a good library should be easy to use correctly and hard to misuse it. Please see if you need to improve @lib.rs to make it hard to hang.
 
 This is current output, it didn't hang but crashed
+
+Please focus on these tasks. I've added tokio-test. Please help to make it easy to mock a gRPC request (given a grpc full name, T: Message for request, it should generate a http2 request), gRPC response (same).
+
+Now please update @tasks.md and @README.md and review all docs in code and see if need update.
+
+I've changed respond_with/respond_when/register_handler/reset to async fn. Please fix doc tests and update @README.md accordingly

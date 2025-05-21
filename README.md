@@ -228,6 +228,244 @@ For a more complete example, check the `examples/grpc_test_demo.rs` file which d
 
 Note these functions are for testing purpose only. DO NOT use them in other cases.
 
+### gRPC Mock Utilities
+
+The crate provides utilities for low-level mocking of gRPC messages:
+
+```rust
+use tonic_mock::grpc_mock::{encode_grpc_request, decode_grpc_message, mock_grpc_call};
+use tonic_mock::test_utils::{TestRequest, TestResponse};
+use tonic::Status;
+
+// Encode a gRPC request
+let request = TestRequest::new("request-id", "test-data");
+let encoded = encode_grpc_request(request);
+
+// Decode a gRPC message
+let decoded: TestRequest = decode_grpc_message(&encoded).unwrap();
+assert_eq!(decoded.id, "request-id".as_bytes());
+
+// Mock a gRPC call with a handler function
+let response = mock_grpc_call(
+    "example.TestService",
+    "TestMethod",
+    request,
+    |req: TestRequest| {
+        // Process the request
+        let id_str = String::from_utf8_lossy(&req.id).to_string();
+        Ok(TestResponse::new(200, format!("Response for: {}", id_str)))
+    }
+).unwrap();
+```
+
+These utilities give you fine-grained control over gRPC message encoding/decoding, which is useful for:
+
+- Testing gRPC handlers directly without setting up a full service
+- Implementing custom gRPC client/server logic
+- Debugging gRPC message format issues
+- Testing custom error handling in gRPC services
+
+For a complete example, see `examples/grpc_mock_example.rs`.
+
+### Mockable gRPC Client
+
+The crate provides a `MockableGrpcClient` utility for mocking gRPC clients:
+
+```rust
+use tonic_mock::client_mock::{MockableGrpcClient, MockResponseDefinition, GrpcClientExt};
+use tonic::{Request, Status, Code};
+
+// Define a client type that will use the mock
+#[derive(Debug, Clone)]
+struct MyServiceClient<T> {
+    inner: T,
+}
+
+// Implement the GrpcClientExt trait for your client
+impl GrpcClientExt<MyServiceClient<MockableGrpcClient>> for MyServiceClient<MockableGrpcClient> {
+    fn with_mock(mock: MockableGrpcClient) -> Self {
+        Self { inner: mock }
+    }
+}
+
+// Create a mock client and configure mock responses
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mock = MockableGrpcClient::new();
+
+    // Configure mock responses
+    mock.mock::<MyRequestType, MyResponseType>("my.package.MyService", "MyMethod")
+        .respond_with(MockResponseDefinition::ok(MyResponseType { /* fields */ }))
+        .await
+        .respond_when(
+            |req| req.some_field == "special-value",
+            MockResponseDefinition::err(Status::new(Code::InvalidArgument, "Invalid value"))
+        )
+        .await;
+
+    // Create a client using the mock
+    let mut client = MyServiceClient::with_mock(mock.clone());
+
+    // Now your client will return the configured responses when called
+    let response = client.my_method(Request::new(my_request)).await?;
+
+    // Reset the mock to clear all handlers
+    mock.reset().await;
+
+    Ok(())
+}
+```
+
+Here's a more complete example with proper error handling:
+
+```rust
+use tonic_mock::client_mock::{MockableGrpcClient, MockResponseDefinition, GrpcClientExt};
+use tonic::{Request, Response, Status, Code};
+use prost::Message;
+use std::error::Error;
+
+// Define message types
+#[derive(Clone, PartialEq, Message)]
+pub struct UserRequest {
+    #[prost(string, tag = "1")]
+    pub user_id: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct UserResponse {
+    #[prost(string, tag = "1")]
+    pub name: String,
+    #[prost(int32, tag = "2")]
+    pub age: i32,
+}
+
+// Define a client that will use the mock
+#[derive(Debug, Clone)]
+struct UserServiceClient<T> {
+    inner: T,
+}
+
+// Implement the extension trait
+impl GrpcClientExt<UserServiceClient<MockableGrpcClient>>
+    for UserServiceClient<MockableGrpcClient>
+{
+    fn with_mock(mock: MockableGrpcClient) -> Self {
+        Self { inner: mock }
+    }
+}
+
+// Implement client methods
+impl UserServiceClient<MockableGrpcClient> {
+    pub async fn get_user(
+        &mut self,
+        request: Request<UserRequest>
+    ) -> Result<Response<UserResponse>, Status> {
+        // Extract request data
+        let request_data = request.into_inner();
+
+        // Encode the request
+        let encoded = tonic_mock::grpc_mock::encode_grpc_request(request_data);
+
+        // Call the mock service
+        let (response_bytes, headers) = self.inner
+            .handle_request("user.UserService", "GetUser", &encoded)
+            .await?;
+
+        // Decode the response
+        let response: UserResponse =
+            tonic_mock::grpc_mock::decode_grpc_message(&response_bytes)?;
+
+        // Return the response
+        Ok(Response::new(response))
+    }
+}
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    // Create the mock
+    let mock = MockableGrpcClient::new();
+
+    // Configure responses
+    mock.mock::<UserRequest, UserResponse>("user.UserService", "GetUser")
+        // For user_id = "user1"
+        .respond_when(
+            |req| req.user_id == "user1",
+            MockResponseDefinition::ok(UserResponse {
+                name: "Alice".to_string(),
+                age: 30,
+            })
+        )
+        .await
+        // For user_id = "user2"
+        .respond_when(
+            |req| req.user_id == "user2",
+            MockResponseDefinition::ok(UserResponse {
+                name: "Bob".to_string(),
+                age: 25,
+            })
+        )
+        .await
+        // Default case - not found
+        .respond_with(
+            MockResponseDefinition::err(Status::new(
+                Code::NotFound,
+                "User not found"
+            ))
+        )
+        .await;
+
+    // Create client with the mock
+    let mut client = UserServiceClient::with_mock(mock);
+
+    // Test with existing users
+    let alice_request = Request::new(UserRequest {
+        user_id: "user1".to_string()
+    });
+
+    match client.get_user(alice_request).await {
+        Ok(response) => {
+            println!("Found user: {} (age {})",
+                     response.get_ref().name,
+                     response.get_ref().age);
+        },
+        Err(status) => {
+            println!("Error: {}", status.message());
+        }
+    }
+
+    // Test with unknown user
+    let unknown_request = Request::new(UserRequest {
+        user_id: "unknown".to_string()
+    });
+
+    match client.get_user(unknown_request).await {
+        Ok(response) => {
+            println!("Found user: {} (age {})",
+                     response.get_ref().name,
+                     response.get_ref().age);
+        },
+        Err(status) => {
+            println!("Error: {} (code: {:?})",
+                     status.message(),
+                     status.code());
+        }
+    }
+
+    Ok(())
+}
+```
+
+Key features of the mockable client:
+
+- Configure responses for specific service methods
+- Return different responses based on request content with predicates
+- Simulate error responses
+- Include custom metadata in responses
+- Add delays to simulate network latency
+- Reset mock configurations between tests
+
+For a complete example, see `examples/mockable_client_example.rs`.
+
 ## License
 
 `tonic-mock` is distributed under the terms of MIT.

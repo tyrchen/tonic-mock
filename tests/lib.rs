@@ -7,6 +7,8 @@ pub mod common;
 #[cfg(test)]
 mod unit {
     pub mod bidirectional_tests;
+    pub mod client_mock_tests;
+    pub mod grpc_mock_tests;
     pub mod mock_tests;
     pub mod request_tests;
     pub mod response_tests;

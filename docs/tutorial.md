@@ -8,6 +8,7 @@ This tutorial demonstrates how to use `tonic-mock` to test gRPC services in Rust
 - [Testing Client Streaming](#testing-client-streaming)
 - [Testing Server Streaming](#testing-server-streaming)
 - [Testing Bidirectional Streaming](#testing-bidirectional-streaming)
+- [Mocking gRPC Clients](#mocking-grpc-clients)
 - [Request Interceptors](#request-interceptors)
 - [Timeout Handling](#timeout-handling)
 - [Error Testing](#error-testing)
@@ -192,6 +193,146 @@ drop(client_tx);
 
 // Wait for the service task to complete
 service_task.await.unwrap();
+```
+
+## Mocking gRPC Clients
+
+The `tonic-mock` library provides a powerful `MockableGrpcClient` utility for mocking gRPC clients. This is useful for testing client code without making actual gRPC calls:
+
+```rust
+use tonic_mock::client_mock::{MockableGrpcClient, MockResponseDefinition, GrpcClientExt};
+use tonic::{Request, Status, Code};
+use prost::Message;
+
+// Define message types (normally generated from protobuf)
+#[derive(Clone, PartialEq, Message)]
+pub struct UserRequest {
+    #[prost(string, tag = "1")]
+    pub user_id: String,
+}
+
+#[derive(Clone, PartialEq, Message)]
+pub struct UserResponse {
+    #[prost(string, tag = "1")]
+    pub name: String,
+}
+
+// Define a client type that will use the mock
+#[derive(Clone)]
+struct UserServiceClient<T> {
+    inner: T,
+}
+
+// Implement the GrpcClientExt trait for your client
+impl GrpcClientExt<UserServiceClient<MockableGrpcClient>> for UserServiceClient<MockableGrpcClient> {
+    fn with_mock(mock: MockableGrpcClient) -> Self {
+        Self { inner: mock }
+    }
+}
+
+#[tokio::test]
+async fn test_user_service_client() {
+    // Create a mock client
+    let mock = MockableGrpcClient::new();
+
+    // Configure mock responses - note the use of await for async methods
+    mock.mock::<UserRequest, UserResponse>("user.UserService", "GetUser")
+        // Mock for user_id = "existing"
+        .respond_when(
+            |req| req.user_id == "existing",
+            MockResponseDefinition::ok(UserResponse {
+                name: "Existing User".to_string(),
+            })
+        )
+        .await
+        // Default response for any other user
+        .respond_with(
+            MockResponseDefinition::err(Status::new(Code::NotFound, "User not found"))
+        )
+        .await;
+
+    // Create a client with the mock
+    let client = UserServiceClient::with_mock(mock.clone());
+
+    // Test implementation goes here...
+
+    // You can reset the mock when done
+    mock.reset().await;
+}
+```
+
+### Implementing the client methods
+
+To implement the client methods that use the mock:
+
+```rust
+impl UserServiceClient<MockableGrpcClient> {
+    pub async fn get_user(&mut self, request: Request<UserRequest>)
+        -> Result<Response<UserResponse>, Status> {
+        // Extract request data
+        let request_data = request.into_inner();
+
+        // Encode the request
+        let encoded = tonic_mock::grpc_mock::encode_grpc_request(request_data);
+
+        // Call the mock service - note the await for the async handle_request method
+        let (response_bytes, headers) = self.inner
+            .handle_request("user.UserService", "GetUser", &encoded)
+            .await?;
+
+        // Decode the response
+        let response: UserResponse =
+            tonic_mock::grpc_mock::decode_grpc_message(&response_bytes)?;
+
+        // Create a tonic response
+        Ok(Response::new(response))
+    }
+}
+```
+
+### Using conditional responses
+
+You can configure the mock to return different responses based on request content:
+
+```rust
+// Configure different responses for different user IDs
+mock.mock::<UserRequest, UserResponse>("user.UserService", "GetUser")
+    .respond_when(
+        |req| req.user_id == "admin",
+        MockResponseDefinition::ok(UserResponse {
+            name: "Administrator".to_string(),
+        })
+    )
+    .await
+    .respond_when(
+        |req| req.user_id == "guest",
+        MockResponseDefinition::ok(UserResponse {
+            name: "Guest User".to_string(),
+        })
+    )
+    .await
+    .respond_with(
+        MockResponseDefinition::err(Status::new(Code::NotFound, "User not found"))
+    )
+    .await;
+```
+
+### Adding metadata and delays
+
+You can add metadata and simulate network delays in your mock responses:
+
+```rust
+// Add metadata and delay to response
+mock.mock::<UserRequest, UserResponse>("user.UserService", "GetUser")
+    .respond_with(
+        MockResponseDefinition::ok(UserResponse {
+            name: "Test User".to_string(),
+        })
+        .with_metadata("x-request-id", "12345")
+        .with_metadata("server", "test-server")
+        .with_delay(200) // 200ms delay
+    )
+    .await;
 ```
 
 ## Request Interceptors

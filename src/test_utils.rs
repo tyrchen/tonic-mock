@@ -1,7 +1,86 @@
-// Test utilities for tonic-mock
-//
-// This module provides helper types and functions to simplify testing gRPC services
-// that use streaming interfaces. It is gated behind the "test-utils" feature.
+/*!
+# Test Utilities
+
+This module provides helper types and functions to simplify testing gRPC services
+with streaming interfaces. It is enabled by default but can be disabled by setting
+`default-features = false` when including the crate.
+
+## Core Components
+
+- [`TestRequest`]: A simple request message type for testing
+- [`TestResponse`]: A simple response message type for testing
+- [`create_test_messages`]: Create a vector of test messages with sequential IDs
+- [`create_stream_response`]: Create a streaming response from a vector of messages
+- [`create_stream_response_with_errors`]: Create a streaming response with errors at specified indices
+- [`assert_message_eq`]: Assert that a message matches expected values
+- [`assert_response_eq`]: Assert that a response matches expected values
+
+## Example Usage
+
+```rust
+use tonic::{Request, Response, Status, Code};
+use tonic_mock::{streaming_request, process_streaming_response};
+use tonic_mock::test_utils::{
+    TestRequest, TestResponse, create_test_messages,
+    create_stream_response, assert_response_eq
+};
+
+// Create test messages
+let messages = create_test_messages(5);
+assert_eq!(messages.len(), 5);
+
+// Create a streaming request
+let request = streaming_request(messages);
+
+// Call your service (or mock it for this example)
+let responses = vec![
+    TestResponse::new(200, "OK: 0"),
+    TestResponse::new(200, "OK: 1"),
+    TestResponse::new(200, "OK: 2"),
+    TestResponse::new(200, "OK: 3"),
+    TestResponse::new(200, "OK: 4"),
+];
+let response = create_stream_response(responses);
+
+// Process the streaming response
+process_streaming_response(response, |result, index| {
+    assert!(result.is_ok());
+    let response = result.unwrap();
+    assert_response_eq(&response, 200, format!("OK: {}", index));
+}).await;
+
+// Test error handling
+let responses = vec![
+    TestResponse::new(200, "OK: 0"),
+    TestResponse::new(200, "OK: 1"),
+    TestResponse::new(200, "OK: 2"),
+];
+let error_status = Status::new(Code::Internal, "Simulated error");
+let response = create_stream_response_with_errors(
+    responses,
+    vec![1], // Error at index 1
+    error_status
+);
+
+// Process response with errors
+process_streaming_response(response, |result, index| {
+    match index {
+        1 => {
+            assert!(result.is_err());
+            assert_eq!(result.unwrap_err().code(), Code::Internal);
+        },
+        _ => {
+            assert!(result.is_ok());
+            let response = result.unwrap();
+            assert_eq!(response.code, 200);
+        }
+    }
+}).await;
+```
+
+These utilities make it easier to test gRPC streaming services by providing
+ready-to-use message types and helper functions for common testing patterns.
+*/
 
 use crate::StreamResponseInner;
 use bytes::Bytes;
