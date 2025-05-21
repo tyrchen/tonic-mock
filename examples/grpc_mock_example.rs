@@ -1,3 +1,4 @@
+#![allow(clippy::result_large_err)]
 use std::error::Error;
 use tonic::{Code, Status};
 use tonic_mock::{
